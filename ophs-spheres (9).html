@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPHS Spheres of Influence</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#05060f; overflow:hidden; font-family:'Courier New',monospace; }
+#c { display:block; }
+
+#loading {
+  position:fixed; inset:0; background:#05060f; z-index:200;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+  transition:opacity 0.6s;
+}
+#loading-title { color:#E8E838; font-size:13px; letter-spacing:0.35em; text-transform:uppercase; }
+#loading-bar-wrap { width:200px; height:2px; background:rgba(255,255,255,0.1); border-radius:2px; }
+#loading-bar { height:100%; width:0%; background:#E8E838; border-radius:2px; transition:width 0.4s; }
+
+#hint {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  pointer-events:none; z-index:5; text-align:center;
+}
+#hint-text {
+  color:rgba(255,255,255,0.45); font-size:11px; letter-spacing:0.25em;
+  text-transform:uppercase; animation:breathe 2.8s ease-in-out infinite;
+}
+@keyframes breathe { 0%,100%{opacity:0.3} 50%{opacity:0.85} }
+
+.title-tag {
+  position:fixed; top:18px; left:20px; pointer-events:none;
+  color:rgba(255,255,255,0.3); font-size:9px; letter-spacing:0.22em; text-transform:uppercase;
+}
+
+/* ── LEGEND ── */
+#legend {
+  position:fixed; bottom:168px; left:20px;
+  background:rgba(5,6,15,0.88); border:1px solid rgba(255,255,255,0.12);
+  padding:10px 14px; border-radius:6px; font-size:10px;
+  color:rgba(255,255,255,0.6); line-height:2; backdrop-filter:blur(6px);
+  pointer-events:none;
+}
+.lr { display:flex; align-items:center; gap:8px; }
+.ld { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+
+/* ── CONTROLS ── */
+#controls {
+  position:fixed; bottom:20px; left:20px;
+  display:flex; flex-direction:column; gap:5px;
+  pointer-events:all; max-width:460px;
+}
+.cg { display:flex; gap:5px; flex-wrap:wrap; }
+.cb {
+  background:rgba(5,6,15,0.88); border:1px solid rgba(255,255,255,0.18);
+  color:rgba(255,255,255,0.72); padding:5px 10px; border-radius:4px;
+  font-size:9px; cursor:pointer; font-family:inherit; letter-spacing:0.07em;
+  text-transform:uppercase; transition:all 0.18s; backdrop-filter:blur(5px);
+}
+.cb:hover { background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.45); color:#fff; }
+.cb.on { border-color:rgba(255,255,255,0.65); color:#fff; background:rgba(255,255,255,0.06); }
+.cb[data-p="Alex"]      { border-color:rgba(232,168,56,0.45);  color:#E8A838; }
+.cb[data-p="Dylan"]     { border-color:rgba(56,168,232,0.45);  color:#38A8E8; }
+.cb[data-p="Nicole"]    { border-color:rgba(232,56,106,0.45);  color:#E8386A; }
+.cb[data-p="Elizabeth"] { border-color:rgba(56,232,160,0.45);  color:#38E8A0; }
+.cb[data-p="Lesha"]     { border-color:rgba(168,56,232,0.45);  color:#A838E8; }
+.cb[data-p="Indigo"]    { border-color:rgba(100,60,180,0.55);  color:#9B6FE0; }
+
+/* ── INFO PANEL ── */
+#info-panel {
+  position:fixed; top:18px; right:18px;
+  background:rgba(4,5,14,0.94); border:1px solid rgba(255,255,255,0.18);
+  border-radius:10px; max-width:620px; min-width:480px;
+  display:none; pointer-events:all; backdrop-filter:blur(8px);
+  z-index:50; max-height:86vh; overflow-y:auto; overflow-x:hidden;
+}
+#info-panel.vis { display:block; }
+#ip-head {
+  padding:22px 24px 16px; border-bottom:1px solid rgba(255,255,255,0.08);
+  display:flex; justify-content:space-between; align-items:flex-start; gap:12px;
+}
+#ip-title { font-size:20px; font-weight:bold; color:#fff; letter-spacing:0.04em; line-height:1.35; }
+#ip-who   { font-size:14px; margin-top:5px; opacity:0.6; }
+#ip-x {
+  background:none; border:none; color:rgba(255,255,255,0.4); cursor:pointer;
+  font-size:28px; line-height:1; padding:0 4px; flex-shrink:0; margin-top:-2px;
+}
+#ip-x:hover { color:#fff; }
+#ip-body { padding:18px 24px 22px; font-size:15px; color:rgba(255,255,255,0.78); line-height:1.8; }
+.ip-lbl { font-size:11px; text-transform:uppercase; letter-spacing:0.14em; opacity:0.45; margin-top:16px; margin-bottom:5px; }
+.ip-list { list-style:none; padding:0; }
+.ip-list li { padding:4px 0 4px 16px; position:relative; }
+.ip-list li::before { content:'–'; position:absolute; left:0; opacity:0.45; }
+.badge {
+  display:inline-block; width:15px; height:15px; border-radius:50%;
+  font-size:7px; font-weight:bold; text-align:center; line-height:15px;
+  color:#fff; margin-left:4px; vertical-align:middle;
+}
+
+/* ── SVG OVERLAY for connection lines ── */
+#svg-overlay {
+  position:fixed; inset:0; pointer-events:none; z-index:8;
+}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div id="loading-title">OPHS · Spheres of Influence</div>
+  <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+</div>
+
+<canvas id="c"></canvas>
+
+<div id="hint"><div id="hint-text">Click the sphere to enter</div></div>
+<div class="title-tag">KCMO · Office of Population Health &amp; Science</div>
+
+<svg id="svg-overlay"></svg>
+
+<div id="legend">
+  <div class="lr"><div class="ld" style="background:#E8E838"></div>OPHS Welcome (Layer 0)</div>
+  <div class="lr"><div class="ld" style="background:#888"></div>Name Spheres (Layer 1)</div>
+  <div class="lr"><div class="ld" style="background:#D85A30"></div>Individual Projects (Layer 2)</div>
+  <div class="lr"><div class="ld" style="background:#1D9E75"></div>Team Projects (Layer 3)</div>
+  <div class="lr"><div class="ld" style="background:#7F77DD"></div>OPHS Group Projects (Layer 4)</div>
+  <div class="lr"><div class="ld" style="background:#5B8CCC"></div>Internal Influence (Layer 5)</div>
+  <div class="lr"><div class="ld" style="background:#C8A84B"></div>Outside Influence (Layer 6)</div>
+</div>
+
+<div id="controls">
+  <div class="cg">
+    <button class="cb" id="btn-all">View All</button>
+    <button class="cb" id="btn-indiv">Individual Projects</button>
+    <button class="cb" id="btn-team">Team Projects</button>
+    <button class="cb" id="btn-group">OPHS Group Projects</button>
+  </div>
+  <div class="cg">
+    <button class="cb" id="btn-int">Internal Influence</button>
+    <button class="cb" id="btn-out">Outside Influence</button>
+    <button class="cb" id="btn-reset">Reset View</button>
+  </div>
+  <div class="cg">
+    <button class="cb" data-p="Alex">Alex</button>
+    <button class="cb" data-p="Dylan">Dylan</button>
+    <button class="cb" data-p="Nicole">Nicole</button>
+    <button class="cb" data-p="Elizabeth">Elizabeth</button>
+    <button class="cb" data-p="Lesha">Lesha</button>
+    <button class="cb" data-p="Indigo">Indigo</button>
+  </div>
+</div>
+
+<div id="info-panel">
+  <div id="ip-head">
+    <div><div id="ip-title"></div><div id="ip-who"></div></div>
+    <button id="ip-x">×</button>
+  </div>
+  <div id="ip-body"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════
+//  COLOUR PALETTE
+// ═══════════════════════════════════════════
+const C = {
+  bg:       0x05060f,
+  ophs:     0xE8E838,
+  Alex:     0xE8A838,
+  Dylan:    0x38A8E8,
+  Nicole:   0xE8386A,
+  Elizabeth:0x38E8A0,
+  Lesha:    0xA838E8,
+  Indigo:   0x4B0082,
+  individual:0xD85A30,
+  team:     0x1D9E75,
+  group:    0x7F77DD,
+  internal: 0x5B8CCC,
+  outside:  0xC8A84B,
+};
+function hex(n){ return '#'+(n>>>0).toString(16).padStart(6,'0'); }
+function initials(name){ return name.slice(0,2).toUpperCase(); }
+
+// ═══════════════════════════════════════════
+//  DATA
+// ═══════════════════════════════════════════
+const PERSONS = ['Alex','Dylan','Nicole','Elizabeth','Lesha','Indigo'];
+const TASK_COUNT = {Alex:6,Dylan:13,Nicole:10,Elizabeth:5,Lesha:5,Indigo:0};
+
+const INTERNAL_LIST = [
+  'Communicable Disease/STI','Environmental Health Division','Public Health Preparedness',
+  'Finance','Behavioral Health & Injury Prevention','Policy','Dr. Jones Initiative',
+  'Health Department','CFHE','Life Essentials'
+];
+const OUTSIDE_LIST = [
+  'UMKC','KU','Northland Health Alliance','The City (At-Large)','City Hall',
+  'National Public Health Leadership Organizations','Missouri State','KCU','Cookingham Noll'
+];
+
+// GROUP PROJECTS (Layer 4)
+const GROUP = [
+  { id:'g-cha', name:'Community Health Assessment', who:'Dylan',
+    notes:'Developed the public-facing Community Health Assessment from a wide variety of data sources, internal and external.',
+    int:[], out:['The City (At-Large)'],
+    subs:['Developed public-facing CHA from diverse data sources','Worked with Healthy Homes, Air Quality, LeadSafeKC, and CD/STI Investigation programs','Used vital statistics for life expectancy, cause of death, and infant/maternal health','Used Census Bureau and CDC data to show SDoH and Chronic Disease'] },
+  { id:'g-hex', name:'Health Explorer', who:'Alex',
+    notes:'First ArcGIS experience the team did — set precedence for use of BRFSS data for census tract level analysis. Regional Health Prosperity Zones was born from the Health Opportunity Index.',
+    int:[], out:['The City (At-Large)'],
+    subs:['Health Opportunity Index from 10 significant indicators of lower life expectancy','Conducted neighborhood-level analyses pointing to structural city issues','Context for final predictors','Tract-level life-expectancy visuals'] },
+  { id:'g-spl', name:'Spirit Playbook', who:'Nicole',
+    notes:'The Kansas City Spirit Playbook is a long-range planning product guiding physical development for the next 20 years. Nicole wrote the public health chapter.',
+    int:[], out:['The City (At-Large)'],
+    subs:['Collaboration with city planning to draft plan','Finalized acceptance by city council (April 2023)','Final product in ESRI Storymaps','Identification of Key Concepts for Community Supported Actions','Baseline Data for Decision Making Metrics'] },
+  { id:'g-ods', name:'Overdose Data and Process Support', who:'Alex',
+    notes:'The Overdose Ordinance was a joint effort by Dr. Alex & the Mayor to require hospitals to send OPHS overdose deaths on a recurring basis.',
+    int:[], out:['The City (At-Large)','City Hall'],
+    subs:['Wrote ordinance','Developed interview questions','Provided support to interviewers','Worked with IT to set up City SFTP','Worked with hospitals to set up reporting (Nicole/Dylan)','Developed application and database for contacts and interviews'] },
+  { id:'g-imd', name:'Impact Dashboards', who:'Dylan',
+    notes:'Developed dashboards and data entry templates for highlighting the number of individuals interacted with monthly by ZIP Code. Indigo typically maintains communication of template updates and submission reminders.',
+    int:['Dr. Jones Initiative','Health Department'], out:[],
+    subs:['Data Support: Healthy Homes','Data Support: STI/Imm/TB Clinics','Data Support: EPH','Data Support: Life Essentials','Data Support: Aim4Peace','Data Support: Violence Prevention','Data Support: Community Wellness Ambassadors','Data Support: Community Health Workers',
+      {text:'Communication of template updates & submission reminders', badge:'Indigo'}] },
+  { id:'g-dgov', name:'Data Governance', who:'Alex',
+    notes:'Convened data governance committee and wrote Data Governance Charter. Developed standards for common demographic data collection. Maintain Departmental Data Inventory.',
+    int:['Health Department'], out:['The City (At-Large)'],
+    subs:['Convened data governance committee','Lead on drafting data governance charter','Maintain Departmental Data Inventory','Lead on drafting data governance documents'] },
+  { id:'g-rhpz', name:'Regional Health Prosperity Zones', who:'Alex',
+    notes:'Using the weighted predictors of lower life expectancy, a health opportunity index (HOI) was created. Census tracts with low health opportunities were divided into zones (North, Central, South). Initial funding from the ARPA portion allocated to the Health Department.',
+    int:['Health Department'], out:['The City (At-Large)'],
+    subs:[] },
+  { id:'g-cms', name:'City Manager Reporting Support', who:'Dylan',
+    notes:'Created Excel templates for reporting and wrote R Script to compile divisional reports.',
+    int:['Dr. Jones Initiative','Health Department'], out:['City Hall'],
+    subs:['Created Excel templates for reporting','Wrote R Script to compile divisional reports'] },
+];
+
+// TEAM PROJECTS (Layer 3)
+const TEAM = [
+  { id:'t-mhs', name:'Mental Health Survey Results 2024', who:'Nicole',
+    notes:'Mental Health Survey Results 2024 — annual survey for community mental health data.',
+    int:[], out:['The City (At-Large)'], subs:[] },
+  { id:'t-phab', name:'PHAB', who:'Indigo',
+    notes:'PHAB — Public Health Accreditation Board. Managed by Indigo.',
+    int:['Policy','Health Department'], out:['The City (At-Large)'], subs:[] },
+];
+
+// INDIVIDUAL PROJECTS (Layer 2)
+const INDIV = [
+  // ── ALEX ──
+  { id:'a-covid', name:'Covid-19 Analyst', who:'Alex',
+    notes:'Hired February 2021 for daily Covid-19 data updates through analyses and presentations. In April 2021 the state began sending vaccination data by zip code, race/ethnicity & age.',
+    int:['Health Department'], out:['The City (At-Large)','City Hall'],
+    subs:['Social Media Analyses Posts','Supplied Data for Mayor\'s Vaccine Task Force (VTF)','Health IQ Presentations','ICS Data Officer (Feb \'21–Nov \'22)','Weekly Health Department Covid Dashboard'] },
+  { id:'a-cwl', name:'City-Wide Leadership Roles', who:'Alex',
+    notes:'City-wide leadership across multiple civic data and health organizations.',
+    int:['Health Department'], out:['The City (At-Large)'],
+    subs:['Kansas City Data Collective','UMKC & KCU','KC Chamber DART','Northland Health Alliance (2022–2024)'] },
+  { id:'a-may', name:'Mayoral & City Manager Appointee', who:'Alex',
+    notes:'Mayor appointed Dr. Alex to Health Forward Foundation\'s Community Advisory Council and as Co-Chair of the Input & Review Committee. Also appointed to the Anti-Displacement Task Force by the city manager.',
+    int:['Health Department'], out:['The City (At-Large)','City Hall'],
+    subs:['Community Advisory Council Member','Co-Chair of Input & Review Committee','Anti-Displacement Task Force'] },
+  { id:'a-bchc', name:'Big Cities Health Coalition', who:'Alex',
+    notes:'Dr. Alex is on the Data Modernization Workgroup of the Big Cities Health Coalition.',
+    int:[], out:['The City (At-Large)','National Public Health Leadership Organizations'],
+    subs:[] },
+  { id:'a-tal', name:'Talent Acquisition', who:'Alex',
+    notes:'Dr. Alex wrote a decision package to add a mental health senior analyst and funding for a yearly mental health survey. In spring \'22 he hired Nicole & Dylan.',
+    int:['Health Department'], out:[],
+    subs:['Hiring Nicole','Hiring Dylan'] },
+  { id:'a-phiga', name:'PHIG Application & Acquisition', who:'Alex',
+    notes:'As a result of the PHIG, there are 27 employees (including 3 on our team: Dylan, Liz, & Indigo).',
+    int:['Health Department'], out:[],
+    subs:[] },
+  // ── DYLAN ──
+  { id:'d-reach', name:'REACH Team Data Support', who:'Dylan',
+    notes:'Built Power Apps tool to digitize data collection forms and set up SharePoint database. Developed Power BI dashboard and ad hoc data support for REACH.',
+    int:[], out:[],
+    subs:['Built Power Apps tool for digitizing data collection forms','Developed Power BI dashboard','Developed Outreach log in Microsoft Forms','Ongoing maintenance and updates'] },
+  { id:'d-sss', name:'School Syndromic Surveillance', who:'Dylan',
+    notes:'Working with CD, Dylan created an Excel sheet for internal analysis of syndromic surveillance in elementary schools. Created Power BI dashboard for school nurses. Helped expand to Hickman Mills School District.',
+    int:['Communicable Disease/STI','Health Department'], out:['The City (At-Large)'],
+    subs:['Designed Excel sheet for internal syndromic surveillance analysis','Helped expand program to Hickman Mills School District','Created Power BI dashboard for school nurses','Foundational support on surveillance practices','Developed algorithm to detect case-count outliers'] },
+  { id:'d-mpox', name:'mpox Dashboard', who:'Dylan',
+    notes:'Nicole and Dylan developed a Power BI Dashboard for the CD investigations team based on exports from EpiTrax, ShowMeVax, and OpenElis. Used for internal tracking and stakeholder presentations.',
+    int:['Health Department'], out:['The City (At-Large)'],
+    subs:['Power BI Dashboard for CD investigations team (EpiTrax/ShowMeVax/OpenElis)'] },
+  { id:'d-hiv', name:'HIV Services Dashboard', who:'Dylan',
+    notes:'Dylan worked with Elizabeth Yoder to develop a dashboard of HIV Services case management activities based on reports from SCOUT. Dashboard has not been launched.',
+    int:['Communicable Disease/STI','Health Department'], out:[],
+    subs:['HIV Services case management dashboard (SCOUT reports)','Additional context and subject matter expertise'] },
+  { id:'d-cfhe', name:'CFHE Data Modernization: Cut the BS', who:'Dylan',
+    notes:'Lesha and Dylan worked with the Chronic Disease team to set up an electronic system for the Cut the BS program. All data stored in SharePoint.',
+    int:['Health Department','CFHE'], out:['The City (At-Large)'],
+    subs:['Chronic Disease Registration Sheet (Microsoft Forms)','Chronic Disease Pre and Post Tests (Microsoft Forms)','Chronic Disease Attendance Log (PowerApps)','Community Health Ambassador Attendance Log (PowerApps)','SharePoint data structure (Lesha)','SharePoint data structure (Dylan)'] },
+  { id:'d-lodg', name:'Lodging/Childcare Facility Inspections', who:'Dylan',
+    notes:'Developed digital inspection form in ESRI Survey123 with Power Automate to send results to managers. Developed Power BI Dashboard for inspections.',
+    int:['Environmental Health Division','Health Department'], out:['The City (At-Large)'],
+    subs:['Power BI Dashboard for inspections','Began development of lodging form','Completed development of lodging form','Set up Power Automate flow to send lodging reports'] },
+  { id:'d-life', name:'Life Essentials Dashboard', who:'Dylan',
+    notes:'Dylan worked with Vital Records to create a Power BI Dashboard to replace manual Excel reporting. Expanded to show data on calls received and Fountain Cards after Vital Records joined Life Essentials Division.',
+    int:['Health Department','Life Essentials'], out:['The City (At-Large)'],
+    subs:['Created Power BI Dashboard for Vital Records','Expanded dashboard to Fountain Cards and Customer Service','Developed reports for attendance based on QMATIC system'] },
+  { id:'d-bhip', name:'BHIP Dashboard', who:'Dylan',
+    notes:'Dylan worked with BHIP to expand their Impact dashboard. Added overdose data from ESSENCE and violent crime data from KCPD.',
+    int:['Behavioral Health & Injury Prevention','Health Department'], out:['The City (At-Large)'],
+    subs:['Customized BHIP Impact dashboard to show program needs','Added ESSENCE and KCPD homicides data'] },
+  { id:'d-swa', name:'Surveillance Workbook Automation', who:'Dylan',
+    notes:'Dylan and Lesha used Power Automate in Excel to automate counting and sorting of lab reports for HIV, Chlamydia/Gonorrhea, and Syphilis.',
+    int:['Communicable Disease/STI'], out:[],
+    subs:['Developed workbook for HIV','Developed workbook for CT/GC','Developed workbook for Syphilis'] },
+  { id:'d-env', name:'Environmental Health Dashboard', who:'Dylan',
+    notes:'Dr. Jones requested untracked metrics from the Environmental Health Division. Dylan developed a Power BI dashboard pulling from various sources including Access databases.',
+    int:['Environmental Health Division'], out:['The City (At-Large)'],
+    subs:['Mechanism to track pool violations','HHRIP metrics in dashboard'] },
+  { id:'d-lead', name:'Childhood Lead Program Data Support', who:'Dylan',
+    notes:'Engaged by IT to develop a Power BI dashboard for childhood lead remediation. Also provided data support — calculated key statistics based on testing data and used Census data for grant applications.',
+    int:['Environmental Health Division'], out:['The City (At-Large)'],
+    subs:['Power BI dashboard for lead remediation efforts','Census data support for grant applications','Key statistics from testing data'] },
+  { id:'d-surv', name:'Surveillance Dashboard', who:'Dylan',
+    notes:'Dylan and Lesha worked with the Disease Surveillance team to create a Power BI dashboard from the WebSurv surveillance database.',
+    int:['Communicable Disease/STI'], out:['The City (At-Large)'],
+    subs:['Created initial dashboard version','Updated and improved dashboard'] },
+  { id:'d-sti', name:'STI Disease Investigation Dashboard', who:'Dylan',
+    notes:'Dylan and Lesha worked with the STI Surveillance team to create a Power BI dashboard from the WebSurv database.',
+    int:['Communicable Disease/STI','Health Department'], out:['The City (At-Large)'],
+    subs:['Created initial dashboard version','Updated and improved dashboard'] },
+  { id:'d-hh', name:'Healthy Homes Dashboard', who:'Dylan',
+    notes:'Worked with IT and Healthy Homes to create a Power BI dashboard showing key program metrics around payments and property registration.',
+    int:['Environmental Health Division','Health Department'], out:['The City (At-Large)'],
+    subs:['Created dashboard for HHRIP Property Registration','Working to migrate complaint/inspection data'] },
+  // ── ELIZABETH ──
+  { id:'e-phig', name:'PHIG', who:'Elizabeth',
+    notes:'PHIG is a 7 Million Dollar Grant (second largest the Health Department receives), funding 27 positions. Divided into A1 (personnel & workforce development) and A2 (foundational capabilities). Each project requires a work plan with 5–11 milestones evaluated annually.',
+    int:['Finance','Health Department'], out:['The City (At-Large)','Missouri State'],
+    subs:[],
+    sphereSubs:[
+      { id:'e-a1', name:'A1', who:'Elizabeth',
+        notes:'A1 focuses on personnel & workforce development. Funds received upfront. Two Targeted Evaluation Plans (TEP) needed. Liz\'s TEP for the CWA was declared a Promising Practice in Evaluation by CDC & PHAB.',
+        subs:['Scholarships for the MPH & B.S. Program (Project)','27 Employees (each position is a project)'],
+        sphereSubs:[
+          { id:'e-a1-ta', name:'Drafting Technical Assistance Requests', who:'Elizabeth',
+            notes:'Requests go to the CDC & Component B recipients if a project manager needs assistance. Dr. Alex also drafts these.',
+            subs:[], sphereSubs:[] },
+          { id:'e-a1-peag', name:'PHIG Evaluation Advisory Group (PEAG)', who:'Elizabeth',
+            notes:'Liz was selected for the PEAG because her TEP for the CWA was declared a Promising Practice in Evaluation by the CDC & PHAB.',
+            subs:[], sphereSubs:[] },
+          { id:'e-a1-wp', name:'Work Plans', who:'Elizabeth',
+            notes:'Each project needs a grant note with budget projection & justification and a narrative on how the position relates to grant strategies.',
+            subs:['Drafts grant notes for any project','Drafts narrative','27 Employee Key milestone tracking'],
+            sphereSubs:[] },
+          { id:'e-a1-pna', name:'Peer Network & Advisors', who:'Elizabeth',
+            notes:'Attend monthly meetings; there\'s a forum.',
+            subs:[], sphereSubs:[] },
+        ] },
+      { id:'e-a2', name:'A2', who:'Elizabeth',
+        notes:'A2 focuses on improving foundational capabilities of public health.',
+        subs:['Travel & Conference Registration','KCHD Application (Sunset)','Online Appointment Registration Portal (Sunset)','CHIP Year 1','Improvements in Public Spaces','Financial Sustainability Review','Staff Training (Coursera)','Staff Training (Not Coursera)','EHR Needs Assessment & Scoping','Data Governance & Modernization Enhancements','Nursing & Medical Professional Incentives','Team Building','Community Wellness Ambassadors'],
+        sphereSubs:[
+          { id:'e-a2-ncc', name:'Non-Compete Continuation (NCC)', who:'Elizabeth',
+            notes:'Due in August. Asks for more A2 funding. Must include one bi-annual PPMR. SF424A completed by finance.',
+            subs:['Identify A2 funding strategies per budget period','Draft budget projections with project lead','Complete SF424A budget non-construction form','Draft budget narratives','Draft NCC cover letter'],
+            sphereSubs:[] },
+          { id:'e-a2-gfm', name:'Grant Financial Management Reporting', who:'Elizabeth',
+            notes:'6-month check-in on financial standing.',
+            subs:[], sphereSubs:[] },
+        ] },
+      { id:'e-eval', name:'Evaluation', who:'Elizabeth',
+        notes:'PHIG requires 3 separate evaluation reports submitted at various points in the grant period.',
+        subs:['Bi-annual Progress & Performance Reporting (PPMR)','Annual Progress & Performance Reporting (PPMR)','Spotlight Stories','Highlight Stories'],
+        sphereSubs:[] },
+    ] },
+  { id:'e-cwbp', name:'Citywide Business Plan 2019–2024', who:'Elizabeth',
+    notes:'Liz served as CWBP Data Lead for the Health Department — a 5-year strategic plan by the City Manager\'s office. The effort sparked internal process improvements, identified historic data sources, and helped secure funding for the CHW program.',
+    int:['Finance','Health Department'], out:['The City (At-Large)','City Hall','National Public Health Leadership Organizations'],
+    subs:['Established data collection standards via data dictionary','Collected 22 metrics quarterly and annually','Quarterly and annual data entry in Open Gov platform','Custom Impact templates to track harm reduction supply distribution','CWBP data used to secure CHW program funding','CWBP Indicator Improvement Proposal and SWOT Analysis'] },
+  { id:'e-kpi', name:'Monitoring Performance & KPI Development', who:'Elizabeth',
+    notes:'Health Department Finance Manager presents the budget report detailing prior fiscal year accomplishments and funding needs.',
+    int:['Health Department'], out:['The City (At-Large)'],
+    subs:[] },
+  { id:'e-sp', name:'OPHS SharePoint Site', who:'Elizabeth',
+    notes:'Development and maintenance of the OPHS SharePoint site.',
+    int:['Health Department'], out:[],
+    subs:[] },
+  { id:'e-lm', name:'Logic Model Development', who:'Elizabeth',
+    notes:'Logic Model Development for the office.',
+    int:['Dr. Jones Initiative','Health Department'], out:['The City (At-Large)'],
+    subs:[] },
+  // ── LESHA ──
+  { id:'l-xls', name:'Creating Excel Workbooks for CDP/PHP', who:'Lesha',
+    notes:'Creating Excel workbooks to support Communicable Disease Program and Public Health Program workflows.',
+    int:['Communicable Disease/STI','Health Department'], out:[],
+    subs:['Enhanced QA process for CDP Case logs','Set up QA process for STD case log workflow','Workbook with STD morbidity & intervention activities','OpenEllis Workbooks (SharePoint)','Tracking patients with latent TB infection'] },
+  { id:'l-state', name:'Sending State Reports', who:'Lesha',
+    notes:'Reports were discontinued when MyInsight went live (~April 2024), as the MyInsight STD Clinic Visit forms were not designed to capture this data.',
+    int:['Health Department'], out:['The City (At-Large)','Missouri State'],
+    subs:['Submitted monthly HIV testing report to the state'] },
+  { id:'l-ehr', name:'EHR Reports for CDP/PHP', who:'Lesha',
+    notes:'Lesha created many types of reports from multiple EHRs to track & evaluate the work of CDP, STD, and the clinics. Most of this eventually led to the creation of the monthly disease dashboard.',
+    int:['Communicable Disease/STI'], out:[],
+    subs:['Ran WebSurv outputs into Excel','Troubleshooting crystal report exporting in WebSurv','Created new reporting pathways from Insight','Co-developed CDP output and outcome metrics','Co-developed STD Clinic and Lab Services metrics','Covid-19 & MonkeyPox data reports in EpiTracks'] },
+  { id:'l-cdd', name:'Communicable Disease Dashboard', who:'Lesha',
+    notes:'Monthly view of count of Reportable Diseases per month. Information is always year-to-date but displayed in a monthly view.',
+    int:['Communicable Disease/STI','Health Department'], out:['The City (At-Large)'],
+    subs:['Met with CD team','Pulled datasets from Excel into PowerBI through Power Query'] },
+  { id:'l-train', name:'Training', who:'Lesha',
+    notes:'As part of transitioning from her role in STD to OPHS, Lesha trained Lisa Mertz & Nicole Bailey.',
+    int:['Communicable Disease/STI','Public Health Preparedness','Health Department'], out:[],
+    subs:['Maintaining OpenElis Workbook','Outreach ChexOut System'] },
+  // ── NICOLE ──
+  { id:'n-fw', name:'First Watch', who:'Nicole',
+    notes:'First Watch monitors/tracks 911 calls resulting in ambulance dispatch, with information from the CAD system within 10 minutes. Nicole utilized First Watch in a previous epidemiology/surveillance role.',
+    int:['Communicable Disease/STI','Health Department'], out:['The City (At-Large)'],
+    subs:['Aim4Peace','Overdose Program','Heat Related Illnesses','NFL Draft','Ad Hoc Data Additional Requests'] },
+  { id:'n-ess', name:'ESSENCE', who:'Nicole',
+    notes:'Essence is a syndromic surveillance tool. Nicole\'s operational experience allowed her to conduct trainings for the OPHS team and CDP. She serves as the primary liaison/communicator for Essence-related topics.',
+    int:['Public Health Preparedness','Health Department'], out:['The City (At-Large)'],
+    subs:[] },
+  { id:'n-nha', name:'Northland Health Alliance', who:'Nicole',
+    notes:'Nicole served as Data Liaison to the Mental and Behavioral Health task force from 2023–2025, attending meetings every other month and presenting data on KPI progress tracked in VMSG. Three KPIs identified: Upstream, midstream, and downstream objectives.',
+    int:[], out:['Northland Health Alliance','The City (At-Large)'],
+    subs:[] },
+  { id:'n-ofr', name:'Overdose Fatality Review Board', who:'Nicole',
+    notes:'Passage of Ordinance 230940 in November 2023 established the Overdose Fatality Review Board, two non-fatal overdose investigator positions, and added Overdoses (Schedule I–IV) to the Reportable Disease List.',
+    int:['Health Department'], out:['The City (At-Large)'],
+    subs:['Building and Training 2024','Piloting 2025','Implementation 2026','Annual Report 2024–2025'] },
+  { id:'n-heal', name:'Health Equity Action League (HEAL) 2022–2024', who:'Nicole',
+    notes:'Health Equity Action League activities 2022–2024.',
+    int:[], out:['The City (At-Large)'],
+    subs:['Budget for Health Equity Related events and conferences','Redlining Presentation Coordination (Johnson County Museum)','BAKED: A story of the heat wave in Chicago — Event Coordination','Creation of Health Equity Definitions for PHAB','Update of By-Laws/Mission, Vision, Values','GARE Conference'] },
+  { id:'n-qi', name:'Quality Improvement (QI) Committee', who:'Nicole',
+    notes:'Quality Improvement Committee participation.',
+    int:[], out:[],
+    subs:[] },
+  { id:'n-intern', name:'Internship Supervision', who:'Nicole',
+    notes:'Nicole acts as preceptorship supervisor for interns rotating through the Office of Population Health, providing daily guidance to produce a community health data project.',
+    int:['Health Department'], out:['City Hall','KCU','Cookingham Noll'],
+    subs:['Zikeya Byrd','Robert Schepis','Nabila Hashim'] },
+  { id:'n-pd', name:'Professional Development — Nicole', who:'Nicole',
+    notes:'Professional development activities for Nicole.',
+    int:['Health Department'], out:[],
+    subs:['iBosswell Leadership Series','PMP Project Management Bootcamp','Prompt Engineering and AI Agents','KCMO Learning Management System','Human Centered Design','MARC Trainings','Wastewater Quarterly Surveillance Meetings with DHSS/MU'] },
+  { id:'n-cdc', name:'CDC/NSSP Community of Practice', who:'Nicole',
+    notes:'Nicole attends twice-monthly meetings where syndromic surveillance users across the US and territories share new practices and general updates.',
+    int:['Health Department'], out:['The City (At-Large)'],
+    subs:['Publications on Query Refinement 2025','Abstract Review for Syndromic Surveillance Conference 2026','Planning Committee for Syndromic Surveillance Conference 2025','Community of Practice Meetings (2× month)'] },
+  { id:'n-mhs2', name:'Mental Health Survey 2022–2024', who:'Nicole',
+    notes:'Annual Mental Health Survey for 2022–2024.',
+    int:['Health Department'], out:['The City (At-Large)'],
+    subs:[] },
+];
+
+// ═══════════════════════════════════════════
+//  THREE.JS SETUP
+// ═══════════════════════════════════════════
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(C.bg,1);
+
+const scene = new THREE.Scene();
+// No fog — scene stays fully visible at any zoom distance
+
+const camera = new THREE.PerspectiveCamera(52, innerWidth/innerHeight, 0.1, 3000);
+camera.position.set(0,0,270); // Pulled back enough to see full OPHS sphere (r=48)
+
+// Lighting
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+sun.position.set(60,120,80); scene.add(sun);
+const fill1 = new THREE.PointLight(0x4466ff, 0.7, 500);
+fill1.position.set(-100,80,60); scene.add(fill1);
+const fill2 = new THREE.PointLight(0xff7733, 0.5, 400);
+fill2.position.set(120,-60,30); scene.add(fill2);
+
+// Starfield
+{
+  const sv=[], n=2500;
+  for(let i=0;i<n;i++) sv.push((Math.random()-.5)*1600,(Math.random()-.5)*800,(Math.random()-.5)*800);
+  const sg=new THREE.BufferGeometry();
+  sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3));
+  scene.add(new THREE.Points(sg, new THREE.PointsMaterial({color:0xffffff,size:0.28,transparent:true,opacity:0.45})));
+}
+
+// ═══════════════════════════════════════════
+//  LAYER Z POSITIONS
+// ═══════════════════════════════════════════
+const Z = { ophs:140, name:0, individual:0, team:-80, group:-180, internal:-320, outside:-520 };
+
+// ═══════════════════════════════════════════
+//  GEOMETRY HELPERS
+// ═══════════════════════════════════════════
+// ── Auto-pick text color for contrast ──
+function contrastColor(hexStr) {
+  const r = parseInt(hexStr.slice(1,3),16);
+  const g = parseInt(hexStr.slice(3,5),16);
+  const b = parseInt(hexStr.slice(5,7),16);
+  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return lum > 0.45 ? '#0a0a14' : '#ffffff';
+}
+
+// ── Bake text directly onto sphere surface ──
+// Text is sized and wrapped to fit within the visible front circle of the sphere.
+function makeSphereTexture(text, sphereColor, textColor) {
+  const sz = 512;
+  const cx2 = sz / 2;
+  // The front-facing readable zone is a circle. ~36% of sz radius is safe from distortion.
+  const safeR = sz * 0.18;  // 18% — text stays well within front-facing circle
+  const safeW = safeR * 1.75; // max line width within that circle
+
+  const cv = document.createElement('canvas');
+  cv.width = sz; cv.height = sz;
+  const cx = cv.getContext('2d');
+
+  // Base color
+  cx.fillStyle = sphereColor;
+  cx.fillRect(0,0,sz,sz);
+
+  // Subtle specular (away from center text zone)
+  const g = cx.createRadialGradient(sz*.36,sz*.33,sz*.03, sz*.5,sz*.5,sz*.52);
+  g.addColorStop(0,'rgba(255,255,255,0.18)');
+  g.addColorStop(1,'rgba(0,0,0,0.25)');
+  cx.fillStyle=g; cx.fillRect(0,0,sz,sz);
+
+  // Auto contrast text color
+  const tc = (textColor && textColor !== '#ffffff') ? textColor : contrastColor(sphereColor);
+
+  cx.textAlign = 'center';
+  cx.textBaseline = 'middle';
+
+  function getLines(fsz) {
+    cx.font = `bold ${fsz}px Arial,sans-serif`;
+    const words = text.split(' ');
+    const lines = []; let cur = '';
+    for (const w of words) {
+      const test = cur ? cur+' '+w : w;
+      if (cx.measureText(test).width > safeW) { if(cur) lines.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  // Shrink font until all lines fit width AND total height fits within circle
+  let fsz = 60;
+  let lines, lh, totalH;
+  while (fsz >= 14) {
+    lines = getLines(fsz);
+    lh = fsz * 1.2;
+    totalH = lines.length * lh;
+    cx.font = `bold ${fsz}px Arial,sans-serif`;
+    const maxW = Math.max(...lines.map(l => cx.measureText(l).width));
+    if (maxW <= safeW && totalH <= safeR * 1.65) break;
+    fsz -= 2;
+  }
+
+  cx.font = `bold ${fsz}px Arial,sans-serif`;
+  lh = fsz * 1.2;
+  const startY = cx2 - ((lines.length - 1) * lh) / 2;
+
+  lines.forEach((l, i) => {
+    const y = startY + i * lh;
+    // Readable shadow regardless of sphere color
+    const shadowCol = (tc === '#ffffff') ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.45)';
+    cx.fillStyle = shadowCol;
+    cx.fillText(l, cx2+1.5, y+1.5);
+    cx.fillStyle = tc;
+    cx.fillText(l, cx2, y);
+  });
+
+  return new THREE.CanvasTexture(cv);
+}
+
+function sphere(r, col, emI=0.18, label='', textColor=null) {
+  let mat;
+  if(label){
+    const hexCol='#'+col.toString(16).padStart(6,'0');
+    const tex=makeSphereTexture(label,hexCol,textColor);
+    mat=new THREE.MeshStandardMaterial({map:tex,emissiveMap:tex,emissive:new THREE.Color(col),emissiveIntensity:emI,roughness:0.42,metalness:0.22});
+  } else {
+    mat=new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:emI,roughness:0.38,metalness:0.28});
+  }
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(r,36,36),mat);
+  mesh.rotation.y = -Math.PI / 2; // face texture toward camera (+Z)
+  return mesh;
+}
+
+// Stub — labels now live on the sphere surface
+function labelSprite(text,color,fsz,scaleX,scaleY){
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({transparent:true,opacity:0}));
+  sp.scale.set(scaleX||7,scaleY||1.6,1); sp.visible=false; return sp;
+}
+
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+let clock = 0;
+let welcomeDone = false;
+let flyBusy = false;
+const currentLook = new THREE.Vector3(0,0,140); // Start looking at OPHS sphere
+
+const allMeshes   = [];        // every sphere mesh (for raycasting)
+const floaters    = [];        // {mesh, baseY, speed, amp, phase}
+const orbiters    = [];        // {mesh, parent, r, spd, ang, ys, label}
+const openTasks   = new Set(); // task IDs with desc open
+const openPersons = new Set(); // person names with tasks shown
+
+// Map id → mesh
+const taskMesh   = new Map();
+const subMesh    = new Map();
+// Map person → [indiv meshes]
+const personMeshes = {};
+PERSONS.forEach(p => personMeshes[p] = []);
+
+// Lines (layer backbone)
+const backboneLines = [];
+
+// ═══════════════════════════════════════════
+//  BUILD SCENE
+// ═══════════════════════════════════════════
+
+// ── OPHS Welcome Sphere ──
+const ophs = sphere(48, C.ophs, 0.45, 'OPHS');
+ophs.position.set(0,0,Z.ophs);
+ophs.userData = {id:'ophs', type:'ophs', clickable:true};
+scene.add(ophs);
+allMeshes.push(ophs);
+floaters.push({mesh:ophs, baseY:0, speed:0.38, amp:0.6, phase:0});
+{
+  const lbl = labelSprite('Office of Population Health & Science','#E8E838',13,14,2);
+  lbl.position.set(0,-56,Z.ophs);
+  scene.add(lbl);
+  floaters.push({mesh:lbl, baseY:-28, speed:0.38, amp:0.6, phase:0});
+}
+
+// ── Name Spheres ──
+const NAME_SPACING = 38;
+const nameX0 = -(PERSONS.length-1)*NAME_SPACING/2;
+const nameMesh = {};
+
+function nameR(p){ return 6.4 + 3.6*(TASK_COUNT[p]/TASK_COUNT['Dylan']); }
+
+PERSONS.forEach((p,i)=>{
+  const x = nameX0 + i*NAME_SPACING;
+  const r = nameR(p);
+  const m = sphere(r, C[p], 0.22, p);
+  m.position.set(x,0,Z.name);
+  m.userData = {id:'name-'+p, type:'name', person:p, clickable:true};
+  scene.add(m); allMeshes.push(m);
+  nameMesh[p] = m;
+  floaters.push({mesh:m, baseY:0, speed:0.5+Math.random()*0.25, amp:0.22, phase:Math.random()*Math.PI*2});
+  const lbl = labelSprite(p, hex(C[p]), 12, 6, 1.4);
+  lbl.position.set(x, -(r+2.2), Z.name);
+  scene.add(lbl);
+  floaters.push({mesh:lbl, baseY:-(r+2.2), speed:0.5+Math.random()*0.25, amp:0.22, phase:Math.random()*Math.PI*2});
+});
+
+// ── Individual Project Spheres ──
+const INDIV_R = 2.7;
+const INDIV_COL = C.individual;
+
+function buildIndivSpheres(p) {
+  const tasks = INDIV.filter(t=>t.who===p);
+  const nm = nameMesh[p];
+  const nR = nameR(p);
+  const orbitR = nR + 16 + tasks.length * 1.4;  // wider orbit prevents sphere overlap
+  tasks.forEach((task,i)=>{
+    const ang = (i/tasks.length)*Math.PI*2 - Math.PI/2;
+    const m = sphere(INDIV_R, INDIV_COL, 0.12, task.name);
+    m.position.set(nm.position.x + Math.cos(ang)*orbitR, Math.sin(ang)*orbitR*0.65, Z.individual);
+    m.visible = false;
+    m.userData = {id:task.id, type:'task', layer:'individual', task, clickable:true};
+    scene.add(m); allMeshes.push(m);
+    taskMesh.set(task.id, m);
+    personMeshes[p].push(m);
+    const entry = {mesh:m, parent:nm, r:orbitR, spd:0.04+Math.random()*0.02, ang, ys:0.55, label:null};
+    orbiters.push(entry);
+    floaters.push({mesh:m, baseY:m.position.y, speed:0.7+Math.random()*0.35, amp:0.12, phase:Math.random()*Math.PI*2});
+    // label sprite on sphere
+    const lbl = labelSprite(task.name, hex(INDIV_COL), 8, 5, 1.1);
+    lbl.position.copy(m.position);
+    lbl.position.y += INDIV_R + 2.4;
+    lbl.visible = false;
+    scene.add(lbl);
+    entry.label = lbl;
+  });
+}
+PERSONS.forEach(buildIndivSpheres);
+
+// ── Team Project Spheres ──
+const TEAM_R = 4.4;
+TEAM.forEach((task,i)=>{
+  const x = (i-(TEAM.length-1)/2)*32;
+  const m = sphere(TEAM_R, C.team, 0.14, task.name);
+  m.position.set(x,0,Z.team);
+  m.userData = {id:task.id, type:'task', layer:'team', task, clickable:true};
+  scene.add(m); allMeshes.push(m);
+  taskMesh.set(task.id, m);
+  floaters.push({mesh:m, baseY:0, speed:0.45+Math.random()*0.25, amp:0.2, phase:Math.random()*Math.PI*2});
+  const lbl = labelSprite(task.name, hex(C.team), 9, 7, 1.2);
+  lbl.position.set(x, -(TEAM_R+3.6), Z.team);
+  scene.add(lbl);
+});
+
+// ── Group Project Spheres ──
+const GROUP_R = 3.8;
+{
+  const cols=4;
+  GROUP.forEach((task,i)=>{
+    const col=i%cols, row=Math.floor(i/cols);
+    const x=(col-(cols-1)/2)*34, y=(row-0.5)*18;
+    const m = sphere(GROUP_R, C.group, 0.13, task.name);
+    m.position.set(x,y,Z.group);
+    m.userData = {id:task.id, type:'task', layer:'group', task, clickable:true};
+    scene.add(m); allMeshes.push(m);
+    taskMesh.set(task.id, m);
+    floaters.push({mesh:m, baseY:y, speed:0.4+Math.random()*0.25, amp:0.18, phase:Math.random()*Math.PI*2});
+    const lbl = labelSprite(task.name, hex(C.group), 8, 6.5, 1.1);
+    lbl.position.set(x, y-(GROUP_R+3.6), Z.group);
+    scene.add(lbl);
+  });
+}
+
+// ── Internal Influence Spheres ──
+const INT_R = 9.6;
+INTERNAL_LIST.forEach((name,i)=>{
+  const ang = (i/INTERNAL_LIST.length)*Math.PI*2;
+  const rr=76, x=Math.cos(ang)*rr, y=Math.sin(ang)*rr*0.48;
+  const m = sphere(INT_R, C.internal, 0.13, name);
+  m.position.set(x,y,Z.internal);
+  m.userData = {id:'int-'+i, type:'influence', layer:'internal', name, clickable:true};
+  scene.add(m); allMeshes.push(m);
+  floaters.push({mesh:m, baseY:y, speed:0.28+Math.random()*0.18, amp:0.3, phase:Math.random()*Math.PI*2});
+  const lbl = labelSprite(name, hex(C.internal), 9, 7.5, 1.2);
+  lbl.position.set(x, y-(INT_R+4), Z.internal);
+  scene.add(lbl);
+});
+
+// ── Outside Influence Spheres ──
+const OUT_R = 13.6;
+OUTSIDE_LIST.forEach((name,i)=>{
+  const ang = (i/OUTSIDE_LIST.length)*Math.PI*2;
+  const rr=110, x=Math.cos(ang)*rr, y=Math.sin(ang)*rr*0.42;
+  const m = sphere(OUT_R, C.outside, 0.13, name);
+  m.position.set(x,y,Z.outside);
+  m.userData = {id:'out-'+i, type:'influence', layer:'outside', name, clickable:true};
+  scene.add(m); allMeshes.push(m);
+  floaters.push({mesh:m, baseY:y, speed:0.22+Math.random()*0.15, amp:0.38, phase:Math.random()*Math.PI*2});
+  const lbl = labelSprite(name, hex(C.outside), 9, 8, 1.3);
+  lbl.position.set(x, y-(OUT_R+4.4), Z.outside);
+  scene.add(lbl);
+});
+
+// ── Backbone Lines (layer to layer) ──
+function line3(a,b,op=0.12){
+  const g = new THREE.BufferGeometry().setFromPoints([a,b]);
+  const l = new THREE.Line(g, new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:op}));
+  scene.add(l); backboneLines.push(l);
+}
+line3(new THREE.Vector3(0,0,Z.name-3),    new THREE.Vector3(0,0,Z.team+4));
+line3(new THREE.Vector3(0,0,Z.team-4),    new THREE.Vector3(0,0,Z.group+4));
+line3(new THREE.Vector3(0,0,Z.group-3),   new THREE.Vector3(0,0,Z.internal+7));
+line3(new THREE.Vector3(0,0,Z.internal-7),new THREE.Vector3(0,0,Z.outside+9));
+
+// ═══════════════════════════════════════════
+//  SUBTASK SPHERE SYSTEM
+// ═══════════════════════════════════════════
+function spawnSubSpheres(task, parentMesh, depth=0) {
+  if (!task.sphereSubs || !task.sphereSubs.length) return;
+  const r = 9 - depth*2.2;
+  const subR = Math.max(1.4, INDIV_R * 0.85 - depth*0.3);
+  task.sphereSubs.forEach((sub,i)=>{
+    if (subMesh.has(sub.id)) return;
+    const ang = (i/task.sphereSubs.length)*Math.PI*2;
+    const x = parentMesh.position.x + Math.cos(ang)*r;
+    const y = parentMesh.position.y + Math.sin(ang)*r*0.7;
+    const m = sphere(subR, INDIV_COL, 0.15, sub.name);
+    m.position.set(x,y,parentMesh.position.z);
+    m.scale.setScalar(0.01);
+    m.userData = {id:sub.id, type:'subtask', task:sub, clickable:true, parentId:task.id};
+    m.visible = true;
+    scene.add(m); allMeshes.push(m);
+    subMesh.set(sub.id, m);
+    const entry={mesh:m, parent:parentMesh, r, spd:0.07+Math.random()*0.04, ang, ys:0.7, label:null};
+    orbiters.push(entry);
+    floaters.push({mesh:m, baseY:y, speed:0.8, amp:0.08, phase:Math.random()*Math.PI*2});
+    const lbl = labelSprite(sub.name, hex(INDIV_COL), 7.5, 4.5, 1.0);
+    lbl.position.copy(m.position); lbl.position.y += subR+1.0;
+    scene.add(lbl);
+    entry.label = lbl;
+    tweenScale(m, 0.01, 1, 420);
+  });
+}
+
+function removeSubSpheres(task) {
+  if (!task.sphereSubs) return;
+  task.sphereSubs.forEach(sub=>{
+    const m = subMesh.get(sub.id);
+    if (!m) return;
+    // recursively remove children first
+    removeSubSpheres(sub);
+    openTasks.delete(sub.id);
+    tweenScale(m, m.scale.x, 0.01, 280, ()=>{
+      scene.remove(m);
+      const idx = allMeshes.indexOf(m); if(idx>-1) allMeshes.splice(idx,1);
+      const oi = orbiters.findIndex(o=>o.mesh===m);
+      if(oi>-1){
+        const lbl=orbiters[oi].label;
+        if(lbl) scene.remove(lbl);
+        orbiters.splice(oi,1);
+      }
+      const fi = floaters.findIndex(f=>f.mesh===m); if(fi>-1) floaters.splice(fi,1);
+      subMesh.delete(sub.id);
+    });
+  });
+}
+
+// ═══════════════════════════════════════════
+//  TWEEN HELPERS
+// ═══════════════════════════════════════════
+const tweens=[];
+function tweenScale(mesh, from, to, dur, cb){
+  const start=performance.now();
+  tweens.push({mesh,from,to,dur,start,cb});
+}
+function tweenCamera(toPos, toLook, dur=1000, cb){
+  if(flyBusy) return;
+  flyBusy=true;
+  const sp=camera.position.clone(), sl=currentLook.clone(), st=performance.now();
+  tweens.push({
+    custom: t=>{
+      camera.position.lerpVectors(sp,toPos,t);
+      currentLook.lerpVectors(sl,toLook,t);
+      camera.lookAt(currentLook);
+    },
+    dur, start:st,
+    cb:()=>{ flyBusy=false; if(cb)cb(); }
+  });
+}
+function easeCubic(t){ return t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
+
+// ═══════════════════════════════════════════
+//  PERSON TASK SHOW / HIDE
+// ═══════════════════════════════════════════
+function showPerson(p){
+  openPersons.add(p);
+  personMeshes[p].forEach(m=>{
+    m.visible=true; m.scale.setScalar(0.01);
+    tweenScale(m,0.01,1,480);
+    const oi=orbiters.find(o=>o.mesh===m);
+    if(oi && oi.label){ oi.label.visible=true; oi.label.scale.setScalar(0.01); tweenScale(oi.label,0.01,1,480); }
+  });
+}
+function hidePerson(p){
+  openPersons.delete(p);
+  personMeshes[p].forEach(m=>{
+    // close any open desc / sub-spheres
+    if(openTasks.has(m.userData.id)){
+      openTasks.delete(m.userData.id);
+      removeSubSpheres(m.userData.task);
+    }
+    tweenScale(m,m.scale.x,0.01,280,()=>{ m.visible=false; m.scale.setScalar(1); });
+    const oi=orbiters.find(o=>o.mesh===m);
+    if(oi && oi.label) tweenScale(oi.label,oi.label.scale.x,0.01,280,()=>{ oi.label.visible=false; oi.label.scale.setScalar(1); });
+  });
+  document.getElementById('info-panel').classList.remove('vis');
+}
+
+// ═══════════════════════════════════════════
+//  INFO PANEL
+// ═══════════════════════════════════════════
+function showInfo(task){
+  const col = hex(C[task.who]||0xffffff);
+  document.getElementById('ip-title').textContent = task.name;
+  document.getElementById('ip-title').style.color = col;
+  document.getElementById('ip-who').textContent = task.who;
+  document.getElementById('ip-who').style.color = col;
+  let h='';
+  if(task.notes && !task.notes.includes('no notes')){
+    h+=`<div class="ip-lbl">Notes</div><div>${task.notes}</div>`;
+  }
+  if(task.int && task.int.length){
+    h+=`<div class="ip-lbl">Internal Influence</div><div>${task.int.join(', ')}</div>`;
+  }
+  if(task.out && task.out.length){
+    h+=`<div class="ip-lbl">Outside Influence</div><div>${task.out.join(', ')}</div>`;
+  }
+  if(task.subs && task.subs.length){
+    h+=`<div class="ip-lbl">Subtasks</div><ul class="ip-list">`;
+    task.subs.forEach(s=>{
+      if(typeof s==='string') h+=`<li>${s}</li>`;
+      else {
+        const bc=hex(C[s.badge]||0xffffff);
+        h+=`<li>${s.text} <span class="badge" style="background:${bc}">${initials(s.badge)}</span></li>`;
+      }
+    });
+    h+='</ul>';
+  }
+  if(task.sphereSubs && task.sphereSubs.length){
+    h+=`<div class="ip-lbl">Sub-Projects (click spheres to expand)</div><ul class="ip-list">`;
+    task.sphereSubs.forEach(s=>{ h+=`<li>${s.name}</li>`; });
+    h+='</ul>';
+  }
+  document.getElementById('ip-body').innerHTML = h || '<span style="opacity:0.45">No additional detail.</span>';
+  document.getElementById('info-panel').classList.add('vis');
+}
+
+document.getElementById('ip-x').addEventListener('click',()=>{
+  document.getElementById('info-panel').classList.remove('vis');
+});
+
+// ═══════════════════════════════════════════
+//  SVG CONNECTION LINE
+// ═══════════════════════════════════════════
+let svgLine = null;
+const svgEl = document.getElementById('svg-overlay');
+
+function updateSvgLine(mesh){
+  // Remove old
+  if(svgLine){ svgEl.removeChild(svgLine); svgLine=null; }
+  // Project sphere center to screen
+  const pos = mesh.position.clone();
+  pos.project(camera);
+  const sx = (pos.x*.5+.5)*innerWidth;
+  const sy = (-.5*pos.y+.5)*innerHeight;
+  // Panel
+  const panel = document.getElementById('info-panel');
+  const pr = panel.getBoundingClientRect();
+  if(pr.width===0) return;
+  const tx = pr.left+pr.width/2, ty = pr.top+20;
+  const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  const cx1=sx+(tx-sx)*0.4, cy1=sy, cx2=sx+(tx-sx)*0.6, cy2=ty;
+  path.setAttribute('d',`M${sx},${sy} C${cx1},${cy1} ${cx2},${cy2} ${tx},${ty}`);
+  path.setAttribute('stroke','rgba(255,255,255,0.55)');
+  path.setAttribute('stroke-width','1');
+  path.setAttribute('fill','none');
+  svgEl.appendChild(path);
+  svgLine=path;
+}
+function clearSvgLine(){
+  if(svgLine){ svgEl.removeChild(svgLine); svgLine=null; }
+}
+
+// ═══════════════════════════════════════════
+//  CLICK HANDLING
+// ═══════════════════════════════════════════
+const ray = new THREE.Raycaster();
+const mouse2 = new THREE.Vector2();
+let mdPos = {x:0,y:0};
+
+canvas.addEventListener('mousedown',e=>{ mdPos={x:e.clientX,y:e.clientY}; });
+canvas.addEventListener('mouseup',e=>{
+  if(Math.hypot(e.clientX-mdPos.x,e.clientY-mdPos.y)>6) return;
+  mouse2.set((e.clientX/innerWidth)*2-1,-(e.clientY/innerHeight)*2+1);
+  ray.setFromCamera(mouse2,camera);
+  const hits = ray.intersectObjects(allMeshes.filter(m=>m.visible));
+  if(!hits.length) return;
+  onClick(hits[0].object);
+});
+
+function onClick(m){
+  const ud=m.userData;
+  if(!ud.clickable) return;
+
+  // ── OPHS Welcome ──
+  if(ud.type==='ophs'){
+    if(welcomeDone) return;
+    welcomeDone=true;
+    document.getElementById('hint').style.display='none';
+    tweenCamera(new THREE.Vector3(0,0,120), new THREE.Vector3(0,0,0), 1800);
+    return;
+  }
+
+  // ── Name sphere ──
+  if(ud.type==='name'){
+    const p=ud.person;
+    const btn=document.querySelector(`.cb[data-p="${p}"]`);
+    if(openPersons.has(p)){
+      openPersons.delete(p); hidePerson(p);
+      if(btn) btn.classList.remove('on');
+    } else {
+      showPerson(p);
+      if(btn) btn.classList.add('on');
+      tweenCamera(
+        m.position.clone().add(new THREE.Vector3(0,0,44)),
+        m.position.clone(), 900
+      );
+    }
+    return;
+  }
+
+  // ── Task / Subtask sphere ──
+  if(ud.type==='task' || ud.type==='subtask'){
+    const id=ud.id, task=ud.task;
+    if(openTasks.has(id)){
+      openTasks.delete(id);
+      removeSubSpheres(task);
+      clearSvgLine();
+      document.getElementById('info-panel').classList.remove('vis');
+    } else {
+      openTasks.add(id);
+      showInfo(task);
+      spawnSubSpheres(task, m);
+      tweenCamera(
+        m.position.clone().add(new THREE.Vector3(0,0,28)),
+        m.position.clone(), 700
+      );
+      // defer svg line until panel is visible
+      requestAnimationFrame(()=>updateSvgLine(m));
+    }
+    return;
+  }
+
+  // ── Influence sphere — fly to it ──
+  if(ud.type==='influence'){
+    const zOffset = ud.layer==='outside' ? 40 : 28;
+    tweenCamera(m.position.clone().add(new THREE.Vector3(0,0,zOffset)),m.position.clone(),900);
+    return;
+  }
+}
+
+// ═══════════════════════════════════════════
+//  ORBIT CONTROLS (manual drag + scroll)
+// ═══════════════════════════════════════════
+let drag=false, prevM={x:0,y:0};
+canvas.addEventListener('mousedown',e=>{ drag=true; prevM={x:e.clientX,y:e.clientY}; });
+window.addEventListener('mouseup',()=>drag=false);
+window.addEventListener('mousemove',e=>{
+  if(!drag||flyBusy) return;
+  const dx=e.clientX-prevM.x, dy=e.clientY-prevM.y;
+  prevM={x:e.clientX,y:e.clientY};
+  const off=new THREE.Vector3().subVectors(camera.position,currentLook);
+  const sph=new THREE.Spherical().setFromVector3(off);
+  sph.theta-=dx*.004; sph.phi-=dy*.004;
+  sph.phi=Math.max(.1,Math.min(Math.PI-.1,sph.phi));
+  off.setFromSpherical(sph);
+  camera.position.copy(currentLook).add(off);
+  camera.lookAt(currentLook);
+  if(svgLine && openTasks.size){
+    // find active mesh
+    for(const [id,mesh] of taskMesh){
+      if(openTasks.has(id)){ updateSvgLine(mesh); break; }
+    }
+  }
+});
+canvas.addEventListener('wheel',e=>{
+  if(flyBusy) return;
+  const off=new THREE.Vector3().subVectors(camera.position,currentLook);
+  const d=Math.max(6,Math.min(500,off.length()*(e.deltaY>0?1.1:0.9)));
+  off.normalize().multiplyScalar(d);
+  camera.position.copy(currentLook).add(off);
+},{passive:true});
+
+// Touch
+let tPrev={x:0,y:0};
+canvas.addEventListener('touchstart',e=>{ drag=true; tPrev={x:e.touches[0].clientX,y:e.touches[0].clientY}; },{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  if(!drag) return;
+  const dx=e.touches[0].clientX-tPrev.x, dy=e.touches[0].clientY-tPrev.y;
+  tPrev={x:e.touches[0].clientX,y:e.touches[0].clientY};
+  const off=new THREE.Vector3().subVectors(camera.position,currentLook);
+  const sph=new THREE.Spherical().setFromVector3(off);
+  sph.theta-=dx*.004; sph.phi-=dy*.004;
+  sph.phi=Math.max(.1,Math.min(Math.PI-.1,sph.phi));
+  off.setFromSpherical(sph);
+  camera.position.copy(currentLook).add(off);
+  camera.lookAt(currentLook);
+},{passive:true});
+canvas.addEventListener('touchend',()=>drag=false);
+
+// Pointer cursor
+canvas.addEventListener('mousemove',e=>{
+  mouse2.set((e.clientX/innerWidth)*2-1,-(e.clientY/innerHeight)*2+1);
+  ray.setFromCamera(mouse2,camera);
+  const hits=ray.intersectObjects(allMeshes.filter(m=>m.visible));
+  canvas.style.cursor = hits.length&&hits[0].object.userData.clickable?'pointer':'default';
+});
+
+// ═══════════════════════════════════════════
+//  BUTTON CONTROLS
+// ═══════════════════════════════════════════
+document.getElementById('btn-reset').addEventListener('click',()=>{
+  tweenCamera(new THREE.Vector3(0,0,180),new THREE.Vector3(0,0,0),1200);
+});
+document.getElementById('btn-indiv').addEventListener('click',()=>{
+  tweenCamera(new THREE.Vector3(0,0,96),new THREE.Vector3(0,0,0),900);
+});
+document.getElementById('btn-team').addEventListener('click',()=>{
+  tweenCamera(new THREE.Vector3(0,0,Z.team+100),new THREE.Vector3(0,0,Z.team),900);
+});
+document.getElementById('btn-group').addEventListener('click',()=>{
+  tweenCamera(new THREE.Vector3(0,20,Z.group+130),new THREE.Vector3(0,0,Z.group),900);
+});
+document.getElementById('btn-int').addEventListener('click',()=>{
+  tweenCamera(new THREE.Vector3(0,0,Z.internal+160),new THREE.Vector3(0,0,Z.internal),1000);
+});
+document.getElementById('btn-out').addEventListener('click',()=>{
+  tweenCamera(new THREE.Vector3(0,0,Z.outside+220),new THREE.Vector3(0,0,Z.outside),1200);
+});
+
+let viewAllOpen=false;
+document.getElementById('btn-all').addEventListener('click',()=>{
+  viewAllOpen=!viewAllOpen;
+  document.getElementById('btn-all').classList.toggle('on',viewAllOpen);
+  PERSONS.forEach(p=>{
+    const btn=document.querySelector(`.cb[data-p="${p}"]`);
+    if(viewAllOpen){ showPerson(p); if(btn) btn.classList.add('on'); }
+    else { hidePerson(p); if(btn) btn.classList.remove('on'); }
+  });
+});
+
+document.querySelectorAll('.cb[data-p]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const p=btn.dataset.p;
+    if(openPersons.has(p)){
+      hidePerson(p); btn.classList.remove('on');
+    } else {
+      showPerson(p); btn.classList.add('on');
+      tweenCamera(
+        nameMesh[p].position.clone().add(new THREE.Vector3(0,0,26)),
+        nameMesh[p].position.clone(), 900
+      );
+    }
+  });
+});
+
+// ═══════════════════════════════════════════
+//  RESIZE
+// ═══════════════════════════════════════════
+window.addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+// ═══════════════════════════════════════════
+//  ANIMATION LOOP
+// ═══════════════════════════════════════════
+function animate(){
+  requestAnimationFrame(animate);
+  clock+=0.016;
+
+  // Process tweens
+  const now=performance.now();
+  for(let i=tweens.length-1;i>=0;i--){
+    const tw=tweens[i];
+    const t=Math.min((now-tw.start)/tw.dur,1);
+    const e=easeCubic(t);
+    if(tw.custom){ tw.custom(e); }
+    else { const s=tw.from+(tw.to-tw.from)*e; tw.mesh.scale.setScalar(s); }
+    if(t>=1){ if(tw.cb) tw.cb(); tweens.splice(i,1); }
+  }
+
+  // Floaters (gentle bob)
+  floaters.forEach(f=>{
+    if(!f.mesh.parent) return;
+    f.mesh.position.y = f.baseY + Math.sin(clock*f.speed+f.phase)*f.amp;
+  });
+
+  // Orbiters (rotate around parent)
+  orbiters.forEach(o=>{
+    o.ang += o.spd * 0.012;
+    const px = o.parent.position.x + Math.cos(o.ang)*o.r;
+    const py = o.parent.position.y + Math.sin(o.ang)*o.r*o.ys;
+    o.mesh.position.x=px; o.mesh.position.y=py;
+    // keep float base in sync
+    const fi=floaters.find(f=>f.mesh===o.mesh);
+    if(fi) fi.baseY=py;
+    // move label with mesh
+    if(o.label && o.label.visible){
+      o.label.position.x=px;
+      o.label.position.y=py+o.mesh.geometry.parameters.radius+1.2;
+    }
+  });
+
+  // OPHS sphere pulse
+  ophs.material.emissiveIntensity = 0.3+Math.sin(clock*1.1)*0.18;
+
+  renderer.render(scene,camera);
+}
+
+// ═══════════════════════════════════════════
+//  LOADING SEQUENCE
+// ═══════════════════════════════════════════
+{
+  const bar=document.getElementById('loading-bar');
+  let p=0;
+  const iv=setInterval(()=>{
+    p=Math.min(p+Math.random()*18,95);
+    bar.style.width=p+'%';
+  },80);
+  setTimeout(()=>{
+    clearInterval(iv); bar.style.width='100%';
+    setTimeout(()=>{
+      const ld=document.getElementById('loading');
+      ld.style.opacity='0';
+      setTimeout(()=>ld.style.display='none',600);
+    },300);
+  },900);
+}
+
+camera.lookAt(currentLook); // Ensure correct initial orientation
+animate();
+</script>
+</body>
+</html>
