@@ -21,10 +21,23 @@ body { background:#05060f; overflow:hidden; font-family:'Courier New',monospace;
 #hint {
   position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
   pointer-events:none; z-index:5; text-align:center;
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+}
+#ophs-btn {
+  color:#F5A800; font-size:84px; font-weight:bold; letter-spacing:0.35em;
+  text-transform:uppercase; cursor:pointer; pointer-events:all;
+  text-shadow:0 0 48px rgba(245,168,0,0.75), 0 0 16px rgba(245,168,0,0.5), 0 0 80px rgba(245,120,0,0.3);
+  transition:text-shadow 0.2s, opacity 0.2s;
+  animation:breathe 2.8s ease-in-out infinite;
+}
+#ophs-btn:hover {
+  text-shadow:0 0 80px rgba(245,168,0,1), 0 0 30px rgba(245,168,0,0.8), 0 0 120px rgba(245,100,0,0.5);
+  opacity:1;
 }
 #hint-text {
   color:rgba(255,255,255,0.45); font-size:11px; letter-spacing:0.25em;
   text-transform:uppercase; animation:breathe 2.8s ease-in-out infinite;
+  pointer-events:none;
 }
 @keyframes breathe { 0%,100%{opacity:0.3} 50%{opacity:0.85} }
 
@@ -68,11 +81,11 @@ body { background:#05060f; overflow:hidden; font-family:'Courier New',monospace;
 
 /* ── INFO PANEL ── */
 #info-panel {
-  position:fixed; top:18px; right:18px;
+  position:fixed; bottom:20px; right:20px;
   background:rgba(4,5,14,0.94); border:1px solid rgba(255,255,255,0.18);
-  border-radius:10px; max-width:620px; min-width:480px;
+  border-radius:10px; max-width:500px; min-width:380px;
   display:none; pointer-events:all; backdrop-filter:blur(8px);
-  z-index:50; max-height:86vh; overflow-y:auto; overflow-x:hidden;
+  z-index:50; max-height:85vh; overflow-y:visible; overflow-x:hidden;
 }
 #info-panel.vis { display:block; }
 #ip-head {
@@ -112,14 +125,16 @@ body { background:#05060f; overflow:hidden; font-family:'Courier New',monospace;
 
 <canvas id="c"></canvas>
 
-<div id="hint"><div id="hint-text">Click the sphere to enter</div></div>
+<div id="hint">
+  <div id="ophs-btn">OPHS</div>
+  <div id="hint-text">Click to enter the structure</div>
+</div>
 <div class="title-tag">KCMO · Office of Population Health &amp; Science</div>
 
 <svg id="svg-overlay"></svg>
 
 <div id="legend">
-  <div class="lr"><div class="ld" style="background:#E8E838"></div>OPHS Welcome (Layer 0)</div>
-  <div class="lr"><div class="ld" style="background:#888"></div>Name Spheres (Layer 1)</div>
+  <div class="lr"><div class="ld" style="background:#888"></div>Name Spheres — each team member's sphere is assigned a color</div>
   <div class="lr"><div class="ld" style="background:#D85A30"></div>Individual Projects (Layer 2)</div>
   <div class="lr"><div class="ld" style="background:#1D9E75"></div>Team Projects (Layer 3)</div>
   <div class="lr"><div class="ld" style="background:#7F77DD"></div>OPHS Group Projects (Layer 4)</div>
@@ -138,6 +153,7 @@ body { background:#05060f; overflow:hidden; font-family:'Courier New',monospace;
     <button class="cb" id="btn-int">Internal Influence</button>
     <button class="cb" id="btn-out">Outside Influence</button>
     <button class="cb" id="btn-reset">Reset View</button>
+    <button class="cb" id="btn-connections">See Connections</button>
   </div>
   <div class="cg">
     <button class="cb" data-p="Alex">Alex</button>
@@ -458,12 +474,13 @@ const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(C.bg,1);
+renderer.sortObjects = true; // correct transparency draw order
 
 const scene = new THREE.Scene();
 // No fog — scene stays fully visible at any zoom distance
 
 const camera = new THREE.PerspectiveCamera(52, innerWidth/innerHeight, 0.1, 3000);
-camera.position.set(0,0,270); // Pulled back enough to see full OPHS sphere (r=48)
+camera.position.set(0,0,2156);
 
 // Lighting
 scene.add(new THREE.AmbientLight(0xffffff, 0.35));
@@ -486,7 +503,8 @@ fill2.position.set(120,-60,30); scene.add(fill2);
 // ═══════════════════════════════════════════
 //  LAYER Z POSITIONS
 // ═══════════════════════════════════════════
-const Z = { ophs:140, name:0, individual:0, team:-80, group:-180, internal:-320, outside:-520 };
+const Z = { ophs:140, name:0, individual:0, team:-200, group:-500, internal:-900, outside:-1400 };
+const Y = { team:180, group:-320 }; // vertical offset for team (up) and group (down)
 
 // ═══════════════════════════════════════════
 //  GEOMETRY HELPERS
@@ -500,34 +518,21 @@ function contrastColor(hexStr) {
   return lum > 0.45 ? '#0a0a14' : '#ffffff';
 }
 
-// ── Bake text directly onto sphere surface ──
-// Text is sized and wrapped to fit within the visible front circle of the sphere.
-function makeSphereTexture(text, sphereColor, textColor) {
+// ── Sphere + flat label plane (no UV distortion) ──
+// Returns a Group: sphere body + a flat PlaneGeometry label billboard in front
+function makeLabelTexture(text, sphereColor, textColor) {
   const sz = 512;
-  const cx2 = sz / 2;
-  // The front-facing readable zone is a circle. ~36% of sz radius is safe from distortion.
-  const safeR = sz * 0.18;  // 18% — text stays well within front-facing circle
-  const safeW = safeR * 1.75; // max line width within that circle
-
   const cv = document.createElement('canvas');
   cv.width = sz; cv.height = sz;
   const cx = cv.getContext('2d');
+  cx.clearRect(0,0,sz,sz);
 
-  // Base color
-  cx.fillStyle = sphereColor;
-  cx.fillRect(0,0,sz,sz);
-
-  // Subtle specular (away from center text zone)
-  const g = cx.createRadialGradient(sz*.36,sz*.33,sz*.03, sz*.5,sz*.5,sz*.52);
-  g.addColorStop(0,'rgba(255,255,255,0.18)');
-  g.addColorStop(1,'rgba(0,0,0,0.25)');
-  cx.fillStyle=g; cx.fillRect(0,0,sz,sz);
-
-  // Auto contrast text color
-  const tc = (textColor && textColor !== '#ffffff') ? textColor : contrastColor(sphereColor);
-
+  const tc = textColor || contrastColor(sphereColor);
   cx.textAlign = 'center';
   cx.textBaseline = 'middle';
+
+  // Safe zone: 42% of width, centered
+  const safeW = sz * 0.42;
 
   function getLines(fsz) {
     cx.font = `bold ${fsz}px Arial,sans-serif`;
@@ -535,55 +540,64 @@ function makeSphereTexture(text, sphereColor, textColor) {
     const lines = []; let cur = '';
     for (const w of words) {
       const test = cur ? cur+' '+w : w;
-      if (cx.measureText(test).width > safeW) { if(cur) lines.push(cur); cur = w; }
+      if (cx.measureText(test).width > safeW) { if(cur) lines.push(cur); cur=w; }
       else cur = test;
     }
-    if (cur) lines.push(cur);
+    if(cur) lines.push(cur);
     return lines;
   }
 
-  // Shrink font until all lines fit width AND total height fits within circle
-  let fsz = 60;
-  let lines, lh, totalH;
-  while (fsz >= 14) {
+  let fsz = 72, lines, lh;
+  while(fsz >= 12){
     lines = getLines(fsz);
-    lh = fsz * 1.2;
-    totalH = lines.length * lh;
+    lh = fsz * 1.18;
+    const totalH = lines.length * lh;
     cx.font = `bold ${fsz}px Arial,sans-serif`;
-    const maxW = Math.max(...lines.map(l => cx.measureText(l).width));
-    if (maxW <= safeW && totalH <= safeR * 1.65) break;
+    const maxW = Math.max(...lines.map(l=>cx.measureText(l).width));
+    if(maxW <= safeW && totalH <= sz*0.44) break;
     fsz -= 2;
   }
-
   cx.font = `bold ${fsz}px Arial,sans-serif`;
-  lh = fsz * 1.2;
-  const startY = cx2 - ((lines.length - 1) * lh) / 2;
-
-  lines.forEach((l, i) => {
-    const y = startY + i * lh;
-    // Readable shadow regardless of sphere color
-    const shadowCol = (tc === '#ffffff') ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.45)';
-    cx.fillStyle = shadowCol;
-    cx.fillText(l, cx2+1.5, y+1.5);
-    cx.fillStyle = tc;
-    cx.fillText(l, cx2, y);
+  lh = fsz * 1.18;
+  const startY = sz/2 - ((lines.length-1)*lh)/2;
+  lines.forEach((l,i)=>{
+    const y = startY + i*lh;
+    const shadowCol = tc==='#ffffff'||tc==='#fff' ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.5)';
+    cx.fillStyle=shadowCol; cx.fillText(l, sz/2+1.5, y+1.5);
+    cx.fillStyle=tc;        cx.fillText(l, sz/2, y);
   });
-
   return new THREE.CanvasTexture(cv);
 }
 
 function sphere(r, col, emI=0.18, label='', textColor=null) {
-  let mat;
+  // Plain sphere material (no texture baked in — labels are flat planes)
+  const mat = new THREE.MeshStandardMaterial({
+    color:col, emissive:col, emissiveIntensity:emI, roughness:0.4, metalness:0.25
+  });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(r,36,36), mat);
+
   if(label){
     const hexCol='#'+col.toString(16).padStart(6,'0');
-    const tex=makeSphereTexture(label,hexCol,textColor);
-    mat=new THREE.MeshStandardMaterial({map:tex,emissiveMap:tex,emissive:new THREE.Color(col),emissiveIntensity:emI,roughness:0.42,metalness:0.22});
-  } else {
-    mat=new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:emI,roughness:0.38,metalness:0.28});
+    const tex = makeLabelTexture(label, hexCol, textColor);
+    // Plane sized to fill ~80% of sphere diameter, positioned just in front of sphere surface
+    const planeSize = r * 1.5;
+    const planeMat = new THREE.MeshBasicMaterial({
+      map:tex, transparent:true, depthWrite:false,
+      side:THREE.DoubleSide, alphaTest:0.01
+    });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(planeSize, planeSize), planeMat);
+    plane.position.set(0, 0, r * 1.18); // well proud of surface, clears connection line endpoints
+    plane.userData = { isLabel:true };
+    plane.renderOrder = 999; // always draw on top of connection cylinders
+    const grp = new THREE.Group();
+    grp.add(body);
+    grp.add(plane);
+    // Forward userData to group for raycasting
+    grp.userData = {};
+    body.userData = {};
+    return grp;
   }
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(r,36,36),mat);
-  mesh.rotation.y = -Math.PI / 2; // face texture toward camera (+Z)
-  return mesh;
+  return body;
 }
 
 // Stub — labels now live on the sphere surface
@@ -598,13 +612,31 @@ function labelSprite(text,color,fsz,scaleX,scaleY){
 let clock = 0;
 let welcomeDone = false;
 let flyBusy = false;
-const currentLook = new THREE.Vector3(0,0,140); // Start looking at OPHS sphere
+const currentLook = new THREE.Vector3(0,0,-637);
 
 const allMeshes   = [];        // every sphere mesh (for raycasting)
+// sphere() may return a Group (when labeled) — unwrap for raycasting/userData
+function addSphere(m, userData, container){
+  if(m.isGroup){
+    const body = m.children[0]; // body is first child
+    body.userData = userData;
+    m.userData = userData;
+    container.add(m);
+    allMeshes.push(body);
+    return body; // return body for taskMesh map etc.
+  } else {
+    m.userData = userData;
+    container.add(m);
+    allMeshes.push(m);
+    return m;
+  }
+}
 const floaters    = [];        // {mesh, baseY, speed, amp, phase}
 const orbiters    = [];        // {mesh, parent, r, spd, ang, ys, label}
 const openTasks   = new Set(); // task IDs with desc open
 const openPersons = new Set(); // person names with tasks shown
+const liftedPersons = new Set(); // name spheres currently lifted forward on Z
+const NAME_LIFT = 60; // how far forward (toward camera) a name sphere lifts on click
 
 // Map id → mesh
 const taskMesh   = new Map();
@@ -620,22 +652,48 @@ const backboneLines = [];
 //  BUILD SCENE
 // ═══════════════════════════════════════════
 
-// ── OPHS Welcome Sphere ──
-const ophs = sphere(48, C.ophs, 0.45, 'OPHS');
-ophs.position.set(0,0,Z.ophs);
-ophs.userData = {id:'ophs', type:'ophs', clickable:true};
-scene.add(ophs);
-allMeshes.push(ophs);
-floaters.push({mesh:ophs, baseY:0, speed:0.38, amp:0.6, phase:0});
+// ── OPHS solid sphere removed — replaced by translucent enclosure + HTML button ──
+
+// ── Enclosure Sphere (translucent yellow balloon housing the whole structure) ──
 {
-  const lbl = labelSprite('Office of Population Health & Science','#E8E838',13,14,2);
-  lbl.position.set(0,-56,Z.ophs);
-  scene.add(lbl);
-  floaters.push({mesh:lbl, baseY:-28, speed:0.38, amp:0.6, phase:0});
+  const encGeoInner = new THREE.SphereGeometry(1050, 64, 64);
+  const encGeoOuter = new THREE.SphereGeometry(1050, 64, 64);
+  const encMat = new THREE.MeshPhysicalMaterial({
+    color: 0xE8E838,
+    emissive: 0xE8E838,
+    emissiveIntensity: 0.04,
+    transparent: true,
+    opacity: 0.10,
+    roughness: 0.1,
+    metalness: 0.0,
+    side: THREE.BackSide,   // render inside surface so it's visible from within
+    depthWrite: false,
+  });
+  const encMesh = new THREE.Mesh(encGeoInner, encMat);
+  encMesh.position.set(0, 0, -637);
+  encMesh.userData = { clickable: false };
+  scene.add(encMesh);
+
+  // Outer shell — FrontSide so it's visible when camera is outside
+  const encMatOuter = new THREE.MeshPhysicalMaterial({
+    color: 0xE8E838,
+    emissive: 0xE8E838,
+    emissiveIntensity: 0.06,
+    transparent: true,
+    opacity: 0.10,
+    roughness: 0.08,
+    metalness: 0.0,
+    side: THREE.FrontSide,
+    depthWrite: false,
+  });
+  const encOuter = new THREE.Mesh(encGeoOuter, encMatOuter);
+  encOuter.position.set(0, 0, -637);
+  encOuter.userData = { clickable: false };
+  scene.add(encOuter);
 }
 
 // ── Name Spheres ──
-const NAME_SPACING = 38;
+const NAME_SPACING = 98;
 const nameX0 = -(PERSONS.length-1)*NAME_SPACING/2;
 const nameMesh = {};
 
@@ -644,14 +702,25 @@ function nameR(p){ return 6.4 + 3.6*(TASK_COUNT[p]/TASK_COUNT['Dylan']); }
 PERSONS.forEach((p,i)=>{
   const x = nameX0 + i*NAME_SPACING;
   const r = nameR(p);
-  const m = sphere(r, C[p], 0.22, p);
-  m.position.set(x,0,Z.name);
-  m.userData = {id:'name-'+p, type:'name', person:p, clickable:true};
-  scene.add(m); allMeshes.push(m);
-  nameMesh[p] = m;
+  const darkText = ['Nicole','Lesha','Indigo'].includes(p) ? '#0a0a14' : null;
+  const m = sphere(r, C[p], 0.22, p, darkText);
+  const arcZ = Z.name - Math.pow(x/245,2)*60;
+  m.position.set(x,0,arcZ);
+  m.userData = {id:'name-'+p, type:'name', person:p, clickable:true, baseZ:arcZ};
+  // Name spheres: sphere() may return Group — unwrap body for raycasting
+  if(m.isGroup){
+    scene.add(m);
+    allMeshes.push(m.children[0]);
+    m.children[0].userData = m.userData;
+    nameMesh[p] = m; // keep group ref for position/Z manipulation
+  } else {
+    scene.add(m); allMeshes.push(m);
+    nameMesh[p] = m;
+  }
   floaters.push({mesh:m, baseY:0, speed:0.5+Math.random()*0.25, amp:0.22, phase:Math.random()*Math.PI*2});
   const lbl = labelSprite(p, hex(C[p]), 12, 6, 1.4);
-  lbl.position.set(x, -(r+2.2), Z.name);
+  const arcZ2 = Z.name - Math.pow(x/245,2)*60;
+  lbl.position.set(x, -(r+2.2), arcZ2);
   scene.add(lbl);
   floaters.push({mesh:lbl, baseY:-(r+2.2), speed:0.5+Math.random()*0.25, amp:0.22, phase:Math.random()*Math.PI*2});
 });
@@ -667,101 +736,96 @@ function buildIndivSpheres(p) {
   const orbitR = nR + 16 + tasks.length * 1.4;  // wider orbit prevents sphere overlap
   tasks.forEach((task,i)=>{
     const ang = (i/tasks.length)*Math.PI*2 - Math.PI/2;
-    const m = sphere(INDIV_R, INDIV_COL, 0.12, task.name);
-    m.position.set(nm.position.x + Math.cos(ang)*orbitR, Math.sin(ang)*orbitR*0.65, Z.individual);
-    m.visible = false;
-    m.userData = {id:task.id, type:'task', layer:'individual', task, clickable:true};
-    scene.add(m); allMeshes.push(m);
-    taskMesh.set(task.id, m);
-    personMeshes[p].push(m);
-    const entry = {mesh:m, parent:nm, r:orbitR, spd:0.04+Math.random()*0.02, ang, ys:0.55, label:null};
+    const grp = sphere(INDIV_R, INDIV_COL, 0.12, task.name);
+    grp.position.set(nm.position.x + Math.cos(ang)*orbitR, Math.sin(ang)*orbitR*0.65, Z.individual);
+    grp.visible = false;
+    const ud = {id:task.id, type:'task', layer:'individual', task, clickable:true};
+    grp.userData = ud;
+    scene.add(grp);
+    // For raycasting, push the body (first child if Group, else self)
+    const body = grp.isGroup ? grp.children[0] : grp;
+    body.userData = ud;
+    allMeshes.push(body);
+    taskMesh.set(task.id, body);
+    personMeshes[p].push(grp); // push group so visibility toggle works
+    const entry = {mesh:grp, parent:nm, r:orbitR, spd:0.032, ang, ys:0.55, label:null};
     orbiters.push(entry);
-    floaters.push({mesh:m, baseY:m.position.y, speed:0.7+Math.random()*0.35, amp:0.12, phase:Math.random()*Math.PI*2});
-    // label sprite on sphere
-    const lbl = labelSprite(task.name, hex(INDIV_COL), 8, 5, 1.1);
-    lbl.position.copy(m.position);
-    lbl.position.y += INDIV_R + 2.4;
-    lbl.visible = false;
-    scene.add(lbl);
-    entry.label = lbl;
+    floaters.push({mesh:grp, baseY:grp.position.y, speed:0.7+Math.random()*0.35, amp:0.12, phase:Math.random()*Math.PI*2});
+    // Label is now a flat plane child of grp — no separate sprite needed
+    entry.label = null;
   });
 }
 PERSONS.forEach(buildIndivSpheres);
 
 // ── Team Project Spheres ──
 const TEAM_R = 4.4;
+const teamMeshes = []; // for connection lines
 TEAM.forEach((task,i)=>{
   const x = (i-(TEAM.length-1)/2)*32;
-  const m = sphere(TEAM_R, C.team, 0.14, task.name);
-  m.position.set(x,0,Z.team);
-  m.userData = {id:task.id, type:'task', layer:'team', task, clickable:true};
-  scene.add(m); allMeshes.push(m);
-  taskMesh.set(task.id, m);
-  floaters.push({mesh:m, baseY:0, speed:0.45+Math.random()*0.25, amp:0.2, phase:Math.random()*Math.PI*2});
-  const lbl = labelSprite(task.name, hex(C.team), 9, 7, 1.2);
-  lbl.position.set(x, -(TEAM_R+3.6), Z.team);
-  scene.add(lbl);
+  const grp = sphere(TEAM_R, C.team, 0.14, task.name);
+  grp.position.set(x, Y.team, Z.team);
+  const ud = {id:task.id, type:'task', layer:'team', task, clickable:true};
+  const body = addSphere(grp, ud, scene);
+  taskMesh.set(task.id, body);
+  teamMeshes.push(grp);
+  floaters.push({mesh:grp, baseY:Y.team, speed:0.45+Math.random()*0.25, amp:0.2, phase:Math.random()*Math.PI*2});
 });
 
 // ── Group Project Spheres ──
 const GROUP_R = 3.8;
+const groupMeshes = []; // for connection lines
 {
   const cols=4;
   GROUP.forEach((task,i)=>{
     const col=i%cols, row=Math.floor(i/cols);
-    const x=(col-(cols-1)/2)*34, y=(row-0.5)*18;
-    const m = sphere(GROUP_R, C.group, 0.13, task.name);
-    m.position.set(x,y,Z.group);
-    m.userData = {id:task.id, type:'task', layer:'group', task, clickable:true};
-    scene.add(m); allMeshes.push(m);
-    taskMesh.set(task.id, m);
-    floaters.push({mesh:m, baseY:y, speed:0.4+Math.random()*0.25, amp:0.18, phase:Math.random()*Math.PI*2});
-    const lbl = labelSprite(task.name, hex(C.group), 8, 6.5, 1.1);
-    lbl.position.set(x, y-(GROUP_R+3.6), Z.group);
-    scene.add(lbl);
+    const stagger = (row===0) ? -30 : 0;  // stagger top row leftward between bottom spheres
+    const x=(col-(cols-1)/2)*60 + stagger, y=Y.group + (row-0.5)*28;
+    const grp = sphere(GROUP_R, C.group, 0.13, task.name);
+    grp.position.set(x, y, Z.group);
+    const ud = {id:task.id, type:'task', layer:'group', task, clickable:true};
+    const body = addSphere(grp, ud, scene);
+    taskMesh.set(task.id, body);
+    groupMeshes.push(grp);
+    floaters.push({mesh:grp, baseY:y, speed:0.4+Math.random()*0.25, amp:0.25, phase:Math.random()*Math.PI*2});
   });
 }
 
 // ── Internal Influence Spheres ──
 const INT_R = 9.6;
+const internalMeshes = []; // for connection lines
 INTERNAL_LIST.forEach((name,i)=>{
   const ang = (i/INTERNAL_LIST.length)*Math.PI*2;
-  const rr=76, x=Math.cos(ang)*rr, y=Math.sin(ang)*rr*0.48;
-  const m = sphere(INT_R, C.internal, 0.13, name);
-  m.position.set(x,y,Z.internal);
-  m.userData = {id:'int-'+i, type:'influence', layer:'internal', name, clickable:true};
-  scene.add(m); allMeshes.push(m);
-  floaters.push({mesh:m, baseY:y, speed:0.28+Math.random()*0.18, amp:0.3, phase:Math.random()*Math.PI*2});
-  const lbl = labelSprite(name, hex(C.internal), 9, 7.5, 1.2);
-  lbl.position.set(x, y-(INT_R+4), Z.internal);
-  scene.add(lbl);
+  const rr=160, x=Math.cos(ang)*rr, y=Math.sin(ang)*rr*0.55;
+  const grp = sphere(INT_R, C.internal, 0.13, name);
+  grp.position.set(x,y,Z.internal);
+  const ud = {id:'int-'+i, type:'influence', layer:'internal', name, clickable:true};
+  addSphere(grp, ud, scene);
+  internalMeshes.push(grp);
+  floaters.push({mesh:grp, baseY:y, speed:0.28+Math.random()*0.18, amp:0.3, phase:Math.random()*Math.PI*2});
 });
 
 // ── Outside Influence Spheres ──
 const OUT_R = 13.6;
+const outsideMeshes = []; // for connection lines
 OUTSIDE_LIST.forEach((name,i)=>{
   const ang = (i/OUTSIDE_LIST.length)*Math.PI*2;
-  const rr=110, x=Math.cos(ang)*rr, y=Math.sin(ang)*rr*0.42;
-  const m = sphere(OUT_R, C.outside, 0.13, name);
-  m.position.set(x,y,Z.outside);
-  m.userData = {id:'out-'+i, type:'influence', layer:'outside', name, clickable:true};
-  scene.add(m); allMeshes.push(m);
-  floaters.push({mesh:m, baseY:y, speed:0.22+Math.random()*0.15, amp:0.38, phase:Math.random()*Math.PI*2});
-  const lbl = labelSprite(name, hex(C.outside), 9, 8, 1.3);
-  lbl.position.set(x, y-(OUT_R+4.4), Z.outside);
-  scene.add(lbl);
+  const rr=900, x=Math.cos(ang)*rr, y=Math.sin(ang)*rr*0.4;
+  const grp = sphere(OUT_R, C.outside, 0.13, name);
+  grp.position.set(x,y,Z.outside);
+  const ud = {id:'out-'+i, type:'influence', layer:'outside', name, clickable:true};
+  addSphere(grp, ud, scene);
+  outsideMeshes.push(grp);
+  floaters.push({mesh:grp, baseY:y, speed:0.22+Math.random()*0.15, amp:0.38, phase:Math.random()*Math.PI*2});
 });
 
 // ── Backbone Lines (layer to layer) ──
-function line3(a,b,op=0.12){
+function line3(a,b,op=0.45){
   const g = new THREE.BufferGeometry().setFromPoints([a,b]);
   const l = new THREE.Line(g, new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:op}));
   scene.add(l); backboneLines.push(l);
 }
-line3(new THREE.Vector3(0,0,Z.name-3),    new THREE.Vector3(0,0,Z.team+4));
-line3(new THREE.Vector3(0,0,Z.team-4),    new THREE.Vector3(0,0,Z.group+4));
-line3(new THREE.Vector3(0,0,Z.group-3),   new THREE.Vector3(0,0,Z.internal+7));
-line3(new THREE.Vector3(0,0,Z.internal-7),new THREE.Vector3(0,0,Z.outside+9));
+// Backbone: name→team (back+up), name→group (back+down), group→internal→outside
+// Backbone center lines removed — structure shown via See Connections cylinders
 
 // ═══════════════════════════════════════════
 //  SUBTASK SPHERE SYSTEM
@@ -775,42 +839,39 @@ function spawnSubSpheres(task, parentMesh, depth=0) {
     const ang = (i/task.sphereSubs.length)*Math.PI*2;
     const x = parentMesh.position.x + Math.cos(ang)*r;
     const y = parentMesh.position.y + Math.sin(ang)*r*0.7;
-    const m = sphere(subR, INDIV_COL, 0.15, sub.name);
-    m.position.set(x,y,parentMesh.position.z);
-    m.scale.setScalar(0.01);
-    m.userData = {id:sub.id, type:'subtask', task:sub, clickable:true, parentId:task.id};
-    m.visible = true;
-    scene.add(m); allMeshes.push(m);
-    subMesh.set(sub.id, m);
-    const entry={mesh:m, parent:parentMesh, r, spd:0.07+Math.random()*0.04, ang, ys:0.7, label:null};
+    const grp = sphere(subR, INDIV_COL, 0.15, sub.name);
+    grp.position.set(x,y,parentMesh.position.z);
+    grp.scale.setScalar(0.01);
+    const ud = {id:sub.id, type:'subtask', task:sub, clickable:true, parentId:task.id};
+    grp.userData = ud;
+    grp.visible = true;
+    scene.add(grp);
+    const body = grp.isGroup ? grp.children[0] : grp;
+    body.userData = ud;
+    allMeshes.push(body);
+    subMesh.set(sub.id, body);
+    const entry={mesh:grp, parent:parentMesh, r, spd:0.07+Math.random()*0.04, ang, ys:0.7, label:null, isSubtask:true};
     orbiters.push(entry);
-    floaters.push({mesh:m, baseY:y, speed:0.8, amp:0.08, phase:Math.random()*Math.PI*2});
-    const lbl = labelSprite(sub.name, hex(INDIV_COL), 7.5, 4.5, 1.0);
-    lbl.position.copy(m.position); lbl.position.y += subR+1.0;
-    scene.add(lbl);
-    entry.label = lbl;
-    tweenScale(m, 0.01, 1, 420);
+    floaters.push({mesh:grp, baseY:y, speed:0.8, amp:0.08, phase:Math.random()*Math.PI*2});
+    tweenScale(grp, 0.01, 1, 420);
   });
 }
 
 function removeSubSpheres(task) {
   if (!task.sphereSubs) return;
   task.sphereSubs.forEach(sub=>{
-    const m = subMesh.get(sub.id);
-    if (!m) return;
-    // recursively remove children first
+    const body = subMesh.get(sub.id);
+    if (!body) return;
     removeSubSpheres(sub);
     openTasks.delete(sub.id);
-    tweenScale(m, m.scale.x, 0.01, 280, ()=>{
-      scene.remove(m);
-      const idx = allMeshes.indexOf(m); if(idx>-1) allMeshes.splice(idx,1);
-      const oi = orbiters.findIndex(o=>o.mesh===m);
-      if(oi>-1){
-        const lbl=orbiters[oi].label;
-        if(lbl) scene.remove(lbl);
-        orbiters.splice(oi,1);
-      }
-      const fi = floaters.findIndex(f=>f.mesh===m); if(fi>-1) floaters.splice(fi,1);
+    // The actual scene object is the group (body.parent) or body itself
+    const sceneObj = body.parent && body.parent !== scene ? body.parent : body;
+    tweenScale(sceneObj, sceneObj.scale.x, 0.01, 280, ()=>{
+      scene.remove(sceneObj);
+      const idx = allMeshes.indexOf(body); if(idx>-1) allMeshes.splice(idx,1);
+      const oi = orbiters.findIndex(o=>o.mesh===sceneObj);
+      if(oi>-1){ orbiters.splice(oi,1); }
+      const fi = floaters.findIndex(f=>f.mesh===sceneObj); if(fi>-1) floaters.splice(fi,1);
       subMesh.delete(sub.id);
     });
   });
@@ -843,8 +904,71 @@ function easeCubic(t){ return t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
 // ═══════════════════════════════════════════
 //  PERSON TASK SHOW / HIDE
 // ═══════════════════════════════════════════
+function liftNameSphere(p, lift){
+  const nm = nameMesh[p];
+  if(!nm) return;
+  const targetZ = Z.name + (lift ? NAME_LIFT : 0);
+  tweenZ(nm, nm.position.z, targetZ, 600);
+  // also move its label sprite
+  const lf = floaters.find(f=>f.mesh!==nm && f.mesh.position && Math.abs(f.mesh.position.x - nm.position.x)<1 && f.mesh.position.z === nm.position.z);
+}
+
+// Tween a mesh's Z position
+function tweenZ(mesh, fromZ, toZ, dur){
+  const start = performance.now();
+  function tick(){
+    const t = Math.min((performance.now()-start)/dur, 1);
+    const e = t<0.5 ? 2*t*t : -1+(4-2*t)*t;
+    mesh.position.z = fromZ + (toZ-fromZ)*e;
+    if(t<1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function dimNameSpheres(){
+  // Dim all name spheres that are NOT open, brighten those that are
+  PERSONS.forEach(p=>{
+    const m = nameMesh[p];
+    if(!m) return;
+    const active = openPersons.has(p);
+    tweenOpacity(m, active ? 1.0 : 0.15, 400);
+  });
+}
+function undimAllNameSpheres(){
+  PERSONS.forEach(p=>{
+    const m = nameMesh[p];
+    if(m) tweenOpacity(m, 1.0, 400);
+  });
+}
+function tweenOpacity(mesh, target, dur){
+  // Handle Group (labeled sphere) — operate on body child
+  const body = (mesh.isGroup && mesh.children.length) ? mesh.children[0] : mesh;
+  const mat = body.material;
+  if(!mat) return;
+  mat.transparent = true;
+  const start = performance.now();
+  const from = mat.opacity !== undefined ? mat.opacity : 1.0;
+  function tick(){
+    const t = Math.min((performance.now()-start)/dur,1);
+    const e = t<0.5?2*t*t:-1+(4-2*t)*t;
+    mat.opacity = from + (target-from)*e;
+    mat.emissiveIntensity = 0.22 * mat.opacity;
+    if(t<1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
 function showPerson(p){
   openPersons.add(p);
+  // Lift this name sphere toward the camera so its orbit ring clears neighbors
+  if(!liftedPersons.has(p)){
+    liftedPersons.add(p);
+    const nm = nameMesh[p];
+    const baseZ = nm.userData.baseZ !== undefined ? nm.userData.baseZ : Z.name;
+    tweenZ(nm, nm.position.z, baseZ + NAME_LIFT, 600);
+  }
+  // Dim inactive spheres
+  dimNameSpheres();
   personMeshes[p].forEach(m=>{
     m.visible=true; m.scale.setScalar(0.01);
     tweenScale(m,0.01,1,480);
@@ -854,8 +978,17 @@ function showPerson(p){
 }
 function hidePerson(p){
   openPersons.delete(p);
+  // Lower name sphere back to the plane
+  if(liftedPersons.has(p)){
+    liftedPersons.delete(p);
+    const nm = nameMesh[p];
+    const baseZ2 = nm.userData.baseZ !== undefined ? nm.userData.baseZ : Z.name;
+    tweenZ(nm, nm.position.z, baseZ2, 600);
+  }
+  // If none left open, restore all; otherwise re-evaluate dim state
+  if(openPersons.size === 0) undimAllNameSpheres();
+  else dimNameSpheres();
   personMeshes[p].forEach(m=>{
-    // close any open desc / sub-spheres
     if(openTasks.has(m.userData.id)){
       openTasks.delete(m.userData.id);
       removeSubSpheres(m.userData.task);
@@ -910,13 +1043,24 @@ document.getElementById('ip-x').addEventListener('click',()=>{
   document.getElementById('info-panel').classList.remove('vis');
 });
 
+// ── OPHS button — enter the structure ──
+document.getElementById('ophs-btn').addEventListener('click',()=>{
+  document.getElementById('hint').style.display='none';
+  tweenCamera(
+    new THREE.Vector3(0,0,785),
+    new THREE.Vector3(0,0,0),
+    1800
+  );
+});
+
 // ═══════════════════════════════════════════
 //  SVG CONNECTION LINE
 // ═══════════════════════════════════════════
+// SVG connector line removed
 let svgLine = null;
 const svgEl = document.getElementById('svg-overlay');
 
-function updateSvgLine(mesh){
+function updateSvgLine(mesh){ return; // white connector line removed
   // Remove old
   if(svgLine){ svgEl.removeChild(svgLine); svgLine=null; }
   // Project sphere center to screen
@@ -963,14 +1107,7 @@ function onClick(m){
   const ud=m.userData;
   if(!ud.clickable) return;
 
-  // ── OPHS Welcome ──
-  if(ud.type==='ophs'){
-    if(welcomeDone) return;
-    welcomeDone=true;
-    document.getElementById('hint').style.display='none';
-    tweenCamera(new THREE.Vector3(0,0,120), new THREE.Vector3(0,0,0), 1800);
-    return;
-  }
+  // (OPHS entry handled by #ophs-btn click listener below)
 
   // ── Name sphere ──
   if(ud.type==='name'){
@@ -982,10 +1119,26 @@ function onClick(m){
     } else {
       showPerson(p);
       if(btn) btn.classList.add('on');
-      tweenCamera(
-        m.position.clone().add(new THREE.Vector3(0,0,44)),
-        m.position.clone(), 900
-      );
+      // Compute camera distance to frame the full orbit ring
+      const nR2 = nameR(p);
+      const orbitR2 = nR2 + 16 + INDIV.filter(t=>t.who===p).length * 1.4;
+      const visR = orbitR2 + INDIV_R + 4;
+      const halfFov = 52 * Math.PI / 180 / 2;
+      const camDist = (visR / Math.tan(halfFov)) * 1.25;
+      // Use the group's world position (body mesh is at local 0,0,0 inside group)
+      const nmGrp = nameMesh[p]; // always the group or mesh at world position
+      const worldPos = new THREE.Vector3();
+      nmGrp.getWorldPosition(worldPos);
+      const baseZ3 = nmGrp.userData.baseZ !== undefined ? nmGrp.userData.baseZ : Z.name;
+      const liftedZ = baseZ3 + NAME_LIFT;
+      const lookTarget = new THREE.Vector3(worldPos.x, worldPos.y, liftedZ);
+      setTimeout(()=>{
+        tweenCamera(
+          new THREE.Vector3(lookTarget.x, lookTarget.y, liftedZ + camDist),
+          lookTarget,
+          900
+        );
+      }, 120);
     }
     return;
   }
@@ -1002,9 +1155,19 @@ function onClick(m){
       openTasks.add(id);
       showInfo(task);
       spawnSubSpheres(task, m);
+      // Fly to face the clicked task sphere directly
+      const taskWorldPos = new THREE.Vector3();
+      // m may be a body inside a group — get world position
+      m.getWorldPosition(taskWorldPos);
+      const taskLayer = ud.layer || 'individual';
+      const taskDist = taskLayer==='individual' ? 35 :
+                       taskLayer==='team'       ? 45 :
+                       taskLayer==='group'      ? 45 :
+                       taskLayer==='subtask'    ? 25 : 35;
       tweenCamera(
-        m.position.clone().add(new THREE.Vector3(0,0,28)),
-        m.position.clone(), 700
+        taskWorldPos.clone().add(new THREE.Vector3(0, 0, taskDist)),
+        taskWorldPos.clone(),
+        700
       );
       // defer svg line until panel is visible
       requestAnimationFrame(()=>updateSvgLine(m));
@@ -1014,8 +1177,10 @@ function onClick(m){
 
   // ── Influence sphere — fly to it ──
   if(ud.type==='influence'){
-    const zOffset = ud.layer==='outside' ? 40 : 28;
-    tweenCamera(m.position.clone().add(new THREE.Vector3(0,0,zOffset)),m.position.clone(),900);
+    const infWorldPos = new THREE.Vector3();
+    m.getWorldPosition(infWorldPos);
+    const zOffset = ud.layer==='outside' ? 120 : 60;
+    tweenCamera(infWorldPos.clone().add(new THREE.Vector3(0,0,zOffset)), infWorldPos.clone(), 900);
     return;
   }
 }
@@ -1047,7 +1212,7 @@ window.addEventListener('mousemove',e=>{
 canvas.addEventListener('wheel',e=>{
   if(flyBusy) return;
   const off=new THREE.Vector3().subVectors(camera.position,currentLook);
-  const d=Math.max(6,Math.min(500,off.length()*(e.deltaY>0?1.1:0.9)));
+  const d=Math.max(6,Math.min(4000,off.length()*(e.deltaY>0?1.1:0.9)));
   off.normalize().multiplyScalar(d);
   camera.position.copy(currentLook).add(off);
 },{passive:true});
@@ -1081,22 +1246,178 @@ canvas.addEventListener('mousemove',e=>{
 //  BUTTON CONTROLS
 // ═══════════════════════════════════════════
 document.getElementById('btn-reset').addEventListener('click',()=>{
-  tweenCamera(new THREE.Vector3(0,0,180),new THREE.Vector3(0,0,0),1200);
+  tweenCamera(new THREE.Vector3(0,0,2156),new THREE.Vector3(0,0,-637),1400);
 });
 document.getElementById('btn-indiv').addEventListener('click',()=>{
-  tweenCamera(new THREE.Vector3(0,0,96),new THREE.Vector3(0,0,0),900);
+  tweenCamera(new THREE.Vector3(0,0,785),new THREE.Vector3(0,0,0),800);
 });
 document.getElementById('btn-team').addEventListener('click',()=>{
-  tweenCamera(new THREE.Vector3(0,0,Z.team+100),new THREE.Vector3(0,0,Z.team),900);
+  tweenCamera(new THREE.Vector3(0,Y.team,Z.team+80),new THREE.Vector3(0,Y.team,Z.team),900);
 });
 document.getElementById('btn-group').addEventListener('click',()=>{
-  tweenCamera(new THREE.Vector3(0,20,Z.group+130),new THREE.Vector3(0,0,Z.group),900);
+  tweenCamera(new THREE.Vector3(0,Y.group,Z.group+180),new THREE.Vector3(0,Y.group,Z.group),900);
 });
 document.getElementById('btn-int').addEventListener('click',()=>{
-  tweenCamera(new THREE.Vector3(0,0,Z.internal+160),new THREE.Vector3(0,0,Z.internal),1000);
+  tweenCamera(new THREE.Vector3(0,0,Z.internal+420),new THREE.Vector3(0,0,Z.internal),1000);
 });
 document.getElementById('btn-out').addEventListener('click',()=>{
-  tweenCamera(new THREE.Vector3(0,0,Z.outside+220),new THREE.Vector3(0,0,Z.outside),1200);
+  tweenCamera(new THREE.Vector3(0,0,Z.outside+2400),new THREE.Vector3(0,0,Z.outside),1200);
+});
+
+// ═══════════════════════════════════════════
+//  SEE CONNECTIONS
+// ═══════════════════════════════════════════
+const connLines = [];
+let connectionsVisible = false;
+
+function makeThinCylinder(from, to, color=0xddeeff, opacity=0.35, radius=0.4) {
+  const dir = new THREE.Vector3().subVectors(to, from);
+  const len = dir.length();
+  const geo = new THREE.CylinderGeometry(radius, radius, len, 6, 1);
+  const mat = new THREE.MeshStandardMaterial({color, emissive:color, emissiveIntensity:0.12, roughness:0.6, metalness:0.3, transparent:true, opacity, depthWrite:true});
+  const cyl = new THREE.Mesh(geo, mat);
+  // Position at midpoint, orient along direction
+  const mid = new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5);
+  cyl.position.copy(mid);
+  cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
+  cyl.visible = false;
+  scene.add(cyl);
+  connLines.push(cyl);
+  return cyl;
+}
+
+function buildConnectionLines(){
+  if(connLines.length > 0) return; // already built
+
+  const NM = nameMesh; // each is a Group or Mesh at position x,y,z
+
+  // ── L1 → L4 (Group): top-back of name sphere → above each group sphere
+  PERSONS.forEach(p=>{
+    const nm = NM[p];
+    if(!nm) return;
+    const nPos = nm.position;
+    const nR = nameR(p);
+    // top-back origin of name sphere
+    const fromPt = new THREE.Vector3(nPos.x, nPos.y + nR * 0.7, nPos.z - nR * 0.7);
+    groupMeshes.forEach(gGrp=>{
+      const gPos = gGrp.position;
+      // land above the group sphere
+      const toPt = new THREE.Vector3(gPos.x, gPos.y - GROUP_R * 0.5, gPos.z - GROUP_R * 0.9); // land on back-bottom surface of sphere, behind label plane
+      makeThinCylinder(fromPt, toPt, 0x3d2d8a, 0.88, 0.5);
+    });
+  });
+
+  // ── L1 → L3 (Team): bottom-back of name sphere → below each team sphere
+  PERSONS.forEach(p=>{
+    const nm = NM[p];
+    if(!nm) return;
+    const nPos = nm.position;
+    const nR = nameR(p);
+    // bottom-back (team is in front, so "back" relative to team means negative Z from name perspective — actually team is at Z.team=+200, so it's in FRONT, so bottom-front)
+    const fromPt = new THREE.Vector3(nPos.x, nPos.y - nR * 0.7, nPos.z + nR * 0.7);
+    teamMeshes.forEach(tGrp=>{
+      const tPos = tGrp.position;
+      const toPt = new THREE.Vector3(tPos.x, tPos.y - TEAM_R * 1.5, tPos.z);
+      makeThinCylinder(fromPt, toPt, 0x0a4a32, 0.88, 0.5);
+    });
+  });
+
+  // ── L3 ↔ L4: double lines (side by side, offset slightly in X)
+  const offsets = [-0.6, 0.6];
+  teamMeshes.forEach(tGrp=>{
+    const tPos = tGrp.position;
+    groupMeshes.forEach(gGrp=>{
+      const gPos = gGrp.position;
+      offsets.forEach(ox=>{
+        const from = new THREE.Vector3(tPos.x+ox, tPos.y - TEAM_R, tPos.z);
+        const to   = new THREE.Vector3(gPos.x+ox, gPos.y - GROUP_R * 0.5, gPos.z - GROUP_R * 0.9); // back-bottom surface
+        makeThinCylinder(from, to, 0x2a2860, 0.85, 0.4);
+      });
+    });
+  });
+
+  // ── L1 → L5 → L6: inside-out approach
+  // Each internal sphere connects to its single nearest name sphere (guaranteed full coverage).
+  // Each outside sphere connects to its single nearest internal sphere (guaranteed full coverage).
+  // This is inside-out: instead of name spheres choosing internal neighbors,
+  // internal spheres choose their own nearest name sphere — no sphere ever left out.
+
+  const offsets2 = [-0.5, 0.5];
+
+  // Build a lookup: for each internal sphere, find nearest name sphere
+  internalMeshes.forEach(iGrp=>{
+    const iPos = iGrp.position;
+
+    // Find nearest name sphere by XY distance
+    let nearestName = null, nearestNameDist = Infinity;
+    PERSONS.forEach(p=>{
+      const nm = NM[p];
+      if(!nm) return;
+      const d = Math.hypot(nm.position.x - iPos.x, nm.position.y - iPos.y);
+      if(d < nearestNameDist){ nearestNameDist = d; nearestName = nm; }
+    });
+
+    if(!nearestName) return;
+    const nPos = nearestName.position;
+    const nR = nameR(nearestName.userData.person);
+    const fromPt = new THREE.Vector3(nPos.x, nPos.y, nPos.z - nR);
+
+    // Per-sphere landing point — default is back-bottom surface.
+    // Three bottom-half spheres get custom offsets to keep line ends away from labels.
+    const iName = iGrp.userData.name;
+    let midPt;
+    if(iName === 'CFHE' || iName === 'Health Department'){
+      // Land on the left side of the sphere, center height, behind label plane
+      midPt = new THREE.Vector3(iPos.x - INT_R * 0.85, iPos.y, iPos.z - INT_R * 0.55);
+    } else if(iName === 'Dr. Jones Initiative'){
+      // Land fully to the left of sphere as suggested
+      midPt = new THREE.Vector3(iPos.x - INT_R * 0.9, iPos.y, iPos.z - INT_R * 0.5);
+    } else {
+      // Default: back-bottom surface
+      midPt = new THREE.Vector3(iPos.x, iPos.y - INT_R * 0.5, iPos.z - INT_R * 0.88);
+    }
+
+    offsets2.forEach(ox=>{
+      makeThinCylinder(
+        fromPt.clone().add(new THREE.Vector3(ox,0,0)),
+        midPt.clone().add(new THREE.Vector3(ox,0,0)),
+        0x1a3050, 0.85, 0.4
+      );
+    });
+  });
+
+  // Each outside sphere connects to its single nearest internal sphere
+  outsideMeshes.forEach(oGrp=>{
+    const oPos = oGrp.position;
+
+    let nearestInt = null, nearestIntDist = Infinity;
+    internalMeshes.forEach(iGrp=>{
+      const d = Math.hypot(iGrp.position.x - oPos.x, iGrp.position.y - oPos.y);
+      if(d < nearestIntDist){ nearestIntDist = d; nearestInt = iGrp; }
+    });
+
+    if(!nearestInt) return;
+    const iPos = nearestInt.position;
+    const midPt = new THREE.Vector3(iPos.x, iPos.y - INT_R * 0.5, iPos.z - INT_R * 0.88);
+
+    offsets2.forEach(ox=>{
+      makeThinCylinder(
+        midPt.clone().add(new THREE.Vector3(ox,0,0)),
+        new THREE.Vector3(oPos.x+ox, oPos.y, oPos.z),
+        0x5a4010, 0.85, 0.4
+      );
+    });
+  });
+}
+
+document.getElementById('btn-connections').addEventListener('click',()=>{
+  // Destroy and rebuild every toggle so lines reflect current sphere float positions
+  connLines.forEach(l=>scene.remove(l));
+  connLines.length = 0;
+  connectionsVisible = !connectionsVisible;
+  if(connectionsVisible) buildConnectionLines();
+  connLines.forEach(l=>{ l.visible = true; });
+  document.getElementById('btn-connections').classList.toggle('on', connectionsVisible);
 });
 
 let viewAllOpen=false;
@@ -1117,10 +1438,23 @@ document.querySelectorAll('.cb[data-p]').forEach(btn=>{
       hidePerson(p); btn.classList.remove('on');
     } else {
       showPerson(p); btn.classList.add('on');
-      tweenCamera(
-        nameMesh[p].position.clone().add(new THREE.Vector3(0,0,26)),
-        nameMesh[p].position.clone(), 900
-      );
+      const nmB = nameMesh[p];
+      const wpB = new THREE.Vector3();
+      nmB.getWorldPosition(wpB);
+      const nRB = nameR(p);
+      const orbitRB = nRB + 16 + INDIV.filter(t=>t.who===p).length * 1.4;
+      const visRB = orbitRB + INDIV_R + 4;
+      const hfovB = 52 * Math.PI / 180 / 2;
+      const distB = (visRB / Math.tan(hfovB)) * 1.25;
+      const baseZB = nmB.userData.baseZ !== undefined ? nmB.userData.baseZ : Z.name;
+      const liftZB = baseZB + NAME_LIFT;
+      const lookB = new THREE.Vector3(wpB.x, wpB.y, liftZB);
+      setTimeout(()=>{
+        tweenCamera(
+          new THREE.Vector3(lookB.x, lookB.y, liftZB + distB),
+          lookB, 900
+        );
+      }, 120);
     }
   });
 });
@@ -1164,6 +1498,8 @@ function animate(){
     const px = o.parent.position.x + Math.cos(o.ang)*o.r;
     const py = o.parent.position.y + Math.sin(o.ang)*o.r*o.ys;
     o.mesh.position.x=px; o.mesh.position.y=py;
+    // Task spheres follow their parent name sphere's Z when it lifts
+    if(!o.isSubtask) o.mesh.position.z = o.parent.position.z;
     // keep float base in sync
     const fi=floaters.find(f=>f.mesh===o.mesh);
     if(fi) fi.baseY=py;
@@ -1171,11 +1507,12 @@ function animate(){
     if(o.label && o.label.visible){
       o.label.position.x=px;
       o.label.position.y=py+o.mesh.geometry.parameters.radius+1.2;
+      if(!o.isSubtask) o.label.position.z = o.parent.position.z;
     }
   });
 
   // OPHS sphere pulse
-  ophs.material.emissiveIntensity = 0.3+Math.sin(clock*1.1)*0.18;
+  // (OPHS solid sphere removed — no pulse needed)
 
   renderer.render(scene,camera);
 }
